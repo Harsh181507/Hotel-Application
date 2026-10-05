@@ -2,10 +2,10 @@
 # Render dashboard -> New -> Blueprint -> pick this GitHub repo.
 #
 # One web service runs the API, the live chat AND serves the website,
-# so the hotel has a single address: https://<name>.onrender.com
+# so the hotel has a single address: https://hotel-demo.onrender.com
 services:
   - type: web
-    name: anemos-concierge
+    name: hotel-demo
     runtime: node
     plan: free            # free sleeps after 15 min idle; use "starter" for a real hotel
     region: singapore     # closest Render region to India

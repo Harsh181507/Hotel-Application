@@ -21,7 +21,7 @@ Everything is described in `render.yaml`, so Render sets it all up for you.
 
 1. Go to https://dashboard.render.com and sign up / log in **with GitHub**.
 2. Click **New → Blueprint**, pick the `anemos-concierge` repository and connect it.
-3. Render reads `render.yaml` and shows: web service `anemos-concierge` + database `anemos-db`.
+3. Render reads `render.yaml` and shows: web service `hotel-demo` + database `anemos-db`.
 4. It asks for two values:
    - `SEED_ADMIN_EMAIL`: your front-desk login email
    - `SEED_ADMIN_PASSWORD`: a strong password (8+ characters). **Write it down.**
@@ -30,7 +30,7 @@ Everything is described in `render.yaml`, so Render sets it all up for you.
 
 ## 3. Use it
 
-- Your address is shown at the top of the service page, e.g. `https://anemos-concierge.onrender.com`
+- Your address is shown at the top of the service page, e.g. `https://hotel-demo.onrender.com`
   (Render adds a few letters if that name is taken).
 - Front desk: `https://<your-address>/desk` → log in with the email and password from step 2.
 - **Rooms → QR** on each room → **Download QR** → print and place in the room.

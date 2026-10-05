@@ -10,7 +10,11 @@ const isProd = process.env.NODE_ENV === 'production';
 const email = (process.env.SEED_ADMIN_EMAIL || 'admin@anemos.local').trim().toLowerCase();
 const password = process.env.SEED_ADMIN_PASSWORD || (isProd ? '' : 'ChangeMe123!');
 
-if (password.length < 8) {
+// The admin password is only needed when there is no admin yet. A new web
+// service connected to an existing database (e.g. after renaming the service
+// on Render) starts fine without it.
+const { rows: [{ admins }] } = await pool.query(`SELECT count(*)::int AS admins FROM staff WHERE role = 'admin' AND active`);
+if (admins === 0 && password.length < 8) {
   console.error('SEED_ADMIN_PASSWORD must be set (8+ characters) to create the first admin login.');
   process.exit(1);
 }
@@ -21,11 +25,14 @@ if (newHotel) {
   ({ rows: [hotel] } = await pool.query(`INSERT INTO hotels (name) VALUES ('Anemos') RETURNING id`));
 }
 
-const { rowCount: adminCreated } = await pool.query(
-  `INSERT INTO staff (hotel_id, name, email, password_hash, role)
-   VALUES ($1, 'Admin', $2, $3, 'admin') ON CONFLICT (email) DO NOTHING`,
-  [hotel.id, email, await bcrypt.hash(password, 10)],
-);
+let adminCreated = 0;
+if (password.length >= 8) {
+  ({ rowCount: adminCreated } = await pool.query(
+    `INSERT INTO staff (hotel_id, name, email, password_hash, role)
+     VALUES ($1, 'Admin', $2, $3, 'admin') ON CONFLICT (email) DO NOTHING`,
+    [hotel.id, email, await bcrypt.hash(password, 10)],
+  ));
+}
 
 if (newHotel) {
   for (let n = 101; n <= 110; n++) {
@@ -53,6 +60,6 @@ if (newHotel) console.log('Created hotel with sample rooms 101-110 and sample an
 if (adminCreated) {
   console.log(isProd ? `Created admin login: ${email}` : `Created admin login: ${email} / ${password}  (change this password!)`);
 } else {
-  console.log(`Seed done. Admin login ${email} already exists (password unchanged).`);
+  console.log('Seed done. Existing admin login(s) kept unchanged.');
 }
 await pool.end();
