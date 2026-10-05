@@ -1,0 +1,23 @@
+# Local development database (PostgreSQL on port 5433).
+# Started automatically by "npm run dev" in the main anemos folder,
+# or by hand with:  docker compose up -d
+name: anemos
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: anemos
+      POSTGRES_PASSWORD: anemos
+      POSTGRES_DB: anemos
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anemos -d anemos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  pgdata:

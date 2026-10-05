@@ -1,0 +1,22 @@
+{
+  "name": "anemos",
+  "private": true,
+  "description": "Anemos Concierge: guest answers + live chat with the front desk",
+  "scripts": {
+    "setup": "npm install && npm install --prefix backend && npm install --prefix frontend && node scripts/setup-env.mjs && npm run db && npm run db:migrate --prefix backend && npm run db:seed --prefix backend",
+    "db": "docker compose -f backend/docker-compose.yml up -d --wait",
+    "dev": "npm run db && concurrently --kill-others-on-fail -n api,web -c green,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "test": "npm run smoke --prefix backend",
+    "build": "npm run build --prefix frontend",
+    "db:stop": "docker compose -f backend/docker-compose.yml stop",
+    "test:load": "npm run test:load --prefix backend",
+    "render-build": "npm install --prefix backend --omit=dev && npm install --prefix frontend --include=dev && npm run build --prefix frontend",
+    "start": "npm run db:migrate --prefix backend && npm run db:seed --prefix backend && npm start --prefix backend"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
