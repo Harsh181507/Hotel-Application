@@ -1,4 +1,4 @@
-# Anemos Concierge
+# Hotel Concierge
 
 Hotel guest app: local answers (Wi-Fi, nearby places…) + live chat with reception.
 
