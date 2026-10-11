@@ -60,7 +60,10 @@ export async function api(path, { method = 'GET', body, token } = {}) {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new ApiError(0, 'Cannot reach the server. Check your internet connection.');
+    const host = apiUrl().replace(/^https?:\/\//, '');
+    throw new ApiError(0, appCanChangeServer
+      ? `Cannot reach ${host}. Check your internet connection, or tap "Change" below to set your hotel's server.`
+      : 'Cannot reach the server. Check your internet connection.');
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
