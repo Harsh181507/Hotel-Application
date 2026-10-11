@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { BellOff } from 'lucide-react';
 import { useChat } from '../lib/useChat.js';
 import { REQUEST_TYPES } from '../lib/requestTypes.js';
 import { toast } from '../lib/toast.js';
 import ChatView from '../components/ChatView.jsx';
 import Modal from '../components/Modal.jsx';
 
-export default function GuestChat({ call, socket, connected, active }) {
+export default function GuestChat({ call, socket, connected, active, onOpenMenu }) {
   const chat = useChat({
     call,
     socket,
@@ -15,6 +16,21 @@ export default function GuestChat({ call, socket, connected, active }) {
     readPath: '/api/guest/messages/read',
   });
   const [requestType, setRequestType] = useState(null);
+  const [dnd, setDnd] = useState(false);
+
+  useEffect(() => {
+    if (active) call('/api/guest/room').then((r) => setDnd(Boolean(r?.dnd))).catch(() => {});
+  }, [active, call]);
+
+  const toggleDnd = async () => {
+    try {
+      const room = await call('/api/guest/room/dnd', { method: 'POST', body: { on: !dnd } });
+      setDnd(room.dnd);
+      toast(room.dnd ? 'Do not disturb is on' : 'Do not disturb is off');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
 
   return (
     <div className="guest-chat">
@@ -28,10 +44,13 @@ export default function GuestChat({ call, socket, connected, active }) {
 
       <div className="quick-requests" aria-label="Quick requests">
         {REQUEST_TYPES.map((r) => (
-          <button key={r.type} className="quick" onClick={() => setRequestType(r)}>
+          <button key={r.type} className="quick" onClick={() => (r.type === 'food' ? onOpenMenu() : setRequestType(r))}>
             <r.Icon size={16} /> {r.label}
           </button>
         ))}
+        <button className={`quick ${dnd ? 'quick-on' : ''}`} onClick={toggleDnd} aria-pressed={dnd}>
+          <BellOff size={16} /> Do not disturb{dnd ? ': on' : ''}
+        </button>
       </div>
 
       <ChatView
@@ -39,7 +58,7 @@ export default function GuestChat({ call, socket, connected, active }) {
         side="guest"
         active={active}
         otherName="Front desk"
-        emptyText="Say hello! Our front desk team usually replies within a few minutes."
+        emptyText="Say hello! Ask anything (Wi-Fi, breakfast, check-out) or tell us what you need. We reply in seconds, day and night."
       />
 
       {requestType && (

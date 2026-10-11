@@ -1,23 +1,33 @@
-// Everything the front desk can do. All routes need a staff token, and every
-// query is limited to the staff member's own hotel (req.user.hotelId).
+// Everything staff can do. All routes need a staff token, and every query is
+// limited to the staff member's own hotel (req.user.hotelId).
+// Front-desk roles (admin, reception) can use everything here; department
+// roles (housekeeping, kitchen, maintenance) only their own tasks.
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { query, transaction } from '../db/pool.js';
-import { requireAdmin, requireStaff, userLimiter } from '../middleware/auth.js';
+import { query } from '../db/pool.js';
+import { requireAdmin, requireRoles, requireStaff, userLimiter } from '../middleware/auth.js';
 import { HttpError, notFound } from '../lib/errors.js';
 import { newAccessCode, newRoomToken } from '../lib/codes.js';
 import { broadcastMessage, listMessages, markRead, saveMessage } from '../lib/chat.js';
-import { emitToConversation, emitToStaff, endGuestSessions } from '../lib/realtime.js';
-import { REQUEST_LABELS, STATUS_LABELS } from '../lib/requestTypes.js';
+import { emitToStaff, endGuestSessions } from '../lib/realtime.js';
+import { ALL_ROLES, departmentOf, DEPARTMENTS } from '../lib/departments.js';
+import { getRequest, listRequests, setRequestStatus } from '../lib/requests.js';
+import { invalidateFaqCache } from '../lib/autopilot.js';
+import { stayBill } from '../lib/orders.js';
+import { completeRoomCleaning, floorOf, markRoomDirty, reassignRoomsOf } from '../lib/housekeeping.js';
 
 const router = Router();
 router.use(requireStaff, userLimiter);
+const desk = requireRoles('admin', 'reception');
 
 const id = z.coerce.number().int().positive();
 const guestLogin = z.string().trim().regex(/^[A-Za-z0-9-]{3,32}$/, 'use 3-32 letters, digits or dashes');
 const guestName = z.string().trim().min(1).max(100);
+// Staff log in with an email OR a simple username (many housekeepers have no email).
+const loginId = z.string().trim().toLowerCase().regex(/^[a-z0-9._@+-]{3,100}$/, 'use 3-100 letters, digits, dots or @');
+const floorsList = z.string().trim().max(100).regex(/^[0-9A-Za-z,\s]*$/, 'floors like "1,2"').default('');
 const pageSchema = z.object({
   before: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -59,12 +69,12 @@ router.post('/me/password', async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Rooms & check-in ----------
+// ---------- Rooms & check-in (front desk) ----------
 
-// GET /api/staff/rooms  -> every room, its QR link and current guest (if any)
-router.get('/rooms', async (req, res) => {
+// GET /api/staff/rooms  -> every room, its QR link, cleaning status and current guest
+router.get('/rooms', desk, async (req, res) => {
   const { rows } = await query(
-    `SELECT r.id, r.number, r.qr_token, s.id AS stay_id, s.guest_name, s.guest_login, s.checked_in_at
+    `SELECT r.id, r.number, r.qr_token, r.hk_status, r.dnd, s.id AS stay_id, s.guest_name, s.guest_login, s.checked_in_at
        FROM rooms r LEFT JOIN stays s ON s.room_id = r.id AND s.active
       WHERE r.hotel_id = $1
       ORDER BY length(r.number), r.number`,
@@ -74,6 +84,8 @@ router.get('/rooms', async (req, res) => {
     id: r.id,
     number: r.number,
     link: roomLink(r.qr_token),
+    hkStatus: r.hk_status,
+    dnd: r.dnd,
     stay: r.stay_id ? { id: r.stay_id, guestName: r.guest_name, guestLogin: r.guest_login, checkedInAt: r.checked_in_at } : null,
   })));
 });
@@ -82,10 +94,10 @@ router.get('/rooms', async (req, res) => {
 router.post('/rooms', requireAdmin, async (req, res) => {
   const { number } = z.object({ number: z.string().trim().min(1).max(20) }).parse(req.body);
   const { rows: [room] } = await query(
-    'INSERT INTO rooms (hotel_id, number, qr_token) VALUES ($1, $2, $3) RETURNING id, number, qr_token',
-    [req.user.hotelId, number, newRoomToken()],
+    'INSERT INTO rooms (hotel_id, number, qr_token, floor) VALUES ($1, $2, $3, $4) RETURNING id, number, qr_token, hk_status, dnd',
+    [req.user.hotelId, number, newRoomToken(), floorOf(number)],
   );
-  res.status(201).json({ id: room.id, number: room.number, link: roomLink(room.qr_token), stay: null });
+  res.status(201).json({ id: room.id, number: room.number, link: roomLink(room.qr_token), hkStatus: room.hk_status, dnd: room.dnd, stay: null });
 });
 
 // DELETE /api/staff/rooms/:id   (admin; only when no guest is checked in)
@@ -100,7 +112,7 @@ router.delete('/rooms/:id', requireAdmin, async (req, res) => {
 
 // POST /api/staff/rooms/:id/checkin  { guestName, guestLogin }
 // Returns the 6-digit code ONCE. Only its hash is stored.
-router.post('/rooms/:id/checkin', async (req, res) => {
+router.post('/rooms/:id/checkin', desk, async (req, res) => {
   const body = z.object({ guestName, guestLogin }).parse(req.body);
   const roomId = id.parse(req.params.id);
   const { rows: [room] } = await query('SELECT id, number, qr_token FROM rooms WHERE id = $1 AND hotel_id = $2', [roomId, req.user.hotelId]);
@@ -118,13 +130,15 @@ router.post('/rooms/:id/checkin', async (req, res) => {
     if (err.code === '23505') throw new HttpError(409, `Room ${room.number} already has a guest checked in`);
     throw err;
   }
+  // A new guest starts with Do-not-disturb off.
+  await query('UPDATE rooms SET dnd = false WHERE id = $1', [room.id]);
   stay.room_number = room.number;
   emitToStaff(req.user.hotelId, 'stay:updated', publicStay(stay));
   res.status(201).json({ stay: publicStay(stay), guestId: stay.guest_login, code, link: roomLink(room.qr_token) });
 });
 
 // PATCH /api/staff/stays/:id  { guestName?, guestLogin? }
-router.patch('/stays/:id', async (req, res) => {
+router.patch('/stays/:id', desk, async (req, res) => {
   const body = z.object({ guestName: guestName.optional(), guestLogin: guestLogin.optional() }).parse(req.body);
   const stay = await getStay(req);
   const { rows: [updated] } = await query(
@@ -137,7 +151,7 @@ router.patch('/stays/:id', async (req, res) => {
 });
 
 // POST /api/staff/stays/:id/new-code  -> new 6-digit code; guest's devices are logged out
-router.post('/stays/:id/new-code', async (req, res) => {
+router.post('/stays/:id/new-code', desk, async (req, res) => {
   const stay = await getStay(req);
   const code = newAccessCode();
   await query(
@@ -149,8 +163,14 @@ router.post('/stays/:id/new-code', async (req, res) => {
   res.json({ guestId: stay.guest_login, code });
 });
 
-// POST /api/staff/stays/:id/checkout
-router.post('/stays/:id/checkout', async (req, res) => {
+// GET /api/staff/stays/:id/bill  -> room-service orders + total (shown at check-out)
+router.get('/stays/:id/bill', desk, async (req, res) => {
+  const stay = await getStay(req, { activeOnly: false });
+  res.json(await stayBill(req.user.hotelId, stay.id));
+});
+
+// POST /api/staff/stays/:id/checkout  -> the room goes to housekeeping for cleaning
+router.post('/stays/:id/checkout', desk, async (req, res) => {
   const stay = await getStay(req);
   const { rows: [updated] } = await query(
     `UPDATE stays SET active = false, checked_out_at = now(), token_version = token_version + 1
@@ -159,14 +179,16 @@ router.post('/stays/:id/checkout', async (req, res) => {
   );
   updated.room_number = stay.room_number;
   endGuestSessions(stay.id, 'checked_out');
+  await query('UPDATE rooms SET dnd = false WHERE id = $1', [stay.room_id]);
+  await markRoomDirty(req.user.hotelId, stay.room_id, { priority: true, note: 'Check-out cleaning' });
   emitToStaff(req.user.hotelId, 'stay:updated', publicStay(updated));
   res.json(publicStay(updated));
 });
 
-// ---------- Chat ----------
+// ---------- Chat (front desk) ----------
 
 // GET /api/staff/conversations  -> active guests, newest activity first
-router.get('/conversations', async (req, res) => {
+router.get('/conversations', desk, async (req, res) => {
   const { rows } = await query(
     `SELECT s.id AS stay_id, s.guest_name, s.guest_login, r.number AS room_number,
             lm.body AS last_body, lm.sender AS last_sender, lm.created_at AS last_at,
@@ -185,13 +207,13 @@ router.get('/conversations', async (req, res) => {
 });
 
 // GET /api/staff/stays/:id/messages?before=<id>&limit=50  (works for past stays too)
-router.get('/stays/:id/messages', async (req, res) => {
+router.get('/stays/:id/messages', desk, async (req, res) => {
   const stay = await getStay(req, { activeOnly: false });
   res.json(await listMessages(stay.id, pageSchema.parse(req.query)));
 });
 
 // POST /api/staff/stays/:id/messages  { body }
-router.post('/stays/:id/messages', async (req, res) => {
+router.post('/stays/:id/messages', desk, async (req, res) => {
   const { body } = z.object({ body: z.string().trim().min(1).max(2000) }).parse(req.body);
   const stay = await getStay(req);
   const message = await saveMessage({ stayId: stay.id, sender: 'staff', staffId: req.user.id, body });
@@ -200,55 +222,39 @@ router.post('/stays/:id/messages', async (req, res) => {
 });
 
 // POST /api/staff/stays/:id/read  -> staff has seen the guest's messages
-router.post('/stays/:id/read', async (req, res) => {
+router.post('/stays/:id/read', desk, async (req, res) => {
   const stay = await getStay(req);
   const count = await markRead({ hotelId: req.user.hotelId, stayId: stay.id, readerType: 'staff' });
   res.json({ marked: count });
 });
 
-// ---------- Service requests ----------
+// ---------- Service requests / department tasks ----------
 
-// GET /api/staff/requests?status=open
+const statusEnum = z.enum(['open', 'in_progress', 'done', 'cancelled']);
+
+// GET /api/staff/requests?status=open&department=kitchen
+// Department staff always get their own department's requests only.
 router.get('/requests', async (req, res) => {
-  const { status } = z.object({ status: z.enum(['open', 'in_progress', 'done', 'cancelled']).optional() }).parse(req.query);
-  const { rows } = await query(
-    `SELECT q.id, q.stay_id, q.type, q.details, q.status, q.created_at, q.updated_at,
-            r.number AS room_number, s.guest_name
-       FROM requests q JOIN stays s ON s.id = q.stay_id JOIN rooms r ON r.id = s.room_id
-      WHERE q.hotel_id = $1 AND ($2::text IS NULL OR q.status = $2)
-      ORDER BY q.id DESC LIMIT 200`,
-    [req.user.hotelId, status ?? null],
-  );
-  res.json(rows);
+  const q = z.object({ status: statusEnum.optional(), department: z.enum(DEPARTMENTS).optional() }).parse(req.query);
+  const department = departmentOf(req.user) ?? q.department ?? null;
+  res.json(await listRequests(req.user.hotelId, { status: q.status ?? null, department }));
 });
 
-// PATCH /api/staff/requests/:id  { status: "in_progress" | "done" | "cancelled" | "open" }
-// Also posts an automatic chat message so the guest sees the update.
+// PATCH /api/staff/requests/:id  { status }  ("in_progress" = accept: it becomes yours)
+// The guest gets an automatic chat message about every change.
 router.patch('/requests/:id', async (req, res) => {
-  const { status } = z.object({ status: z.enum(['open', 'in_progress', 'done', 'cancelled']) }).parse(req.body);
-  const { hotelId } = req.user;
+  const { status } = z.object({ status: statusEnum }).parse(req.body);
+  const requestId = id.parse(req.params.id);
+  const existing = await getRequest(req.user.hotelId, requestId);
+  const myDept = departmentOf(req.user);
+  if (!existing || (myDept && existing.department !== myDept)) throw notFound('Request not found');
 
-  const { request, message } = await transaction(async (db) => {
-    const { rows: [request] } = await db.query(
-      `UPDATE requests SET status = $3, updated_at = now()
-        WHERE id = $1 AND hotel_id = $2
-        RETURNING id, stay_id, type, details, status, created_at, updated_at`,
-      [id.parse(req.params.id), hotelId, status],
-    );
-    if (!request) throw notFound('Request not found');
-    const message = await saveMessage({
-      db,
-      stayId: request.stay_id,
-      sender: 'system',
-      staffId: req.user.id,
-      body: `Your ${REQUEST_LABELS[request.type].toLowerCase()} request is ${STATUS_LABELS[status]}.`,
-      requestId: request.id,
-    });
-    return { request, message };
-  });
-
-  broadcastMessage(hotelId, message);
-  emitToConversation(hotelId, request.stay_id, 'request:updated', request);
+  const request = await setRequestStatus(req.user.hotelId, requestId, status, { staffId: req.user.id });
+  // Finishing a cleaning request also marks the room clean on the board.
+  if (request.type === 'housekeeping' && status === 'done') {
+    const { rows: [stay] } = await query('SELECT room_id FROM stays WHERE id = $1', [request.stay_id]);
+    if (stay) await completeRoomCleaning(req.user.hotelId, stay.room_id, { fromRequest: true });
+  }
   res.json(request);
 });
 
@@ -258,91 +264,139 @@ const faqSchema = z.object({
   category: z.string().trim().min(1).max(50).default('General'),
   question: z.string().trim().min(1).max(300),
   answer: z.string().trim().min(1).max(5000),
+  keywords: z.string().trim().max(500).default(''),
   sortOrder: z.number().int().default(0),
 });
+const FAQ_COLUMNS = 'id, category, question, answer, keywords, sort_order';
 
-router.get('/faqs', async (req, res) => {
+router.get('/faqs', desk, async (req, res) => {
   const { rows } = await query(
-    'SELECT id, category, question, answer, sort_order FROM faqs WHERE hotel_id = $1 ORDER BY sort_order, id',
+    `SELECT ${FAQ_COLUMNS} FROM faqs WHERE hotel_id = $1 ORDER BY sort_order, id`,
     [req.user.hotelId],
   );
   res.json(rows);
 });
 
-router.post('/faqs', async (req, res) => {
+router.post('/faqs', desk, async (req, res) => {
   const f = faqSchema.parse(req.body);
   const { rows: [faq] } = await query(
-    `INSERT INTO faqs (hotel_id, category, question, answer, sort_order) VALUES ($1,$2,$3,$4,$5)
-     RETURNING id, category, question, answer, sort_order`,
-    [req.user.hotelId, f.category, f.question, f.answer, f.sortOrder],
+    `INSERT INTO faqs (hotel_id, category, question, answer, keywords, sort_order) VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING ${FAQ_COLUMNS}`,
+    [req.user.hotelId, f.category, f.question, f.answer, f.keywords, f.sortOrder],
   );
+  invalidateFaqCache(req.user.hotelId);
   res.status(201).json(faq);
 });
 
-router.put('/faqs/:id', async (req, res) => {
+router.put('/faqs/:id', desk, async (req, res) => {
   const f = faqSchema.parse(req.body);
   const { rows: [faq] } = await query(
-    `UPDATE faqs SET category = $3, question = $4, answer = $5, sort_order = $6, updated_at = now()
-      WHERE id = $1 AND hotel_id = $2 RETURNING id, category, question, answer, sort_order`,
-    [id.parse(req.params.id), req.user.hotelId, f.category, f.question, f.answer, f.sortOrder],
+    `UPDATE faqs SET category = $3, question = $4, answer = $5, keywords = $6, sort_order = $7, updated_at = now()
+      WHERE id = $1 AND hotel_id = $2 RETURNING ${FAQ_COLUMNS}`,
+    [id.parse(req.params.id), req.user.hotelId, f.category, f.question, f.answer, f.keywords, f.sortOrder],
   );
   if (!faq) throw notFound('FAQ not found');
+  invalidateFaqCache(req.user.hotelId);
   res.json(faq);
 });
 
-router.delete('/faqs/:id', async (req, res) => {
+router.delete('/faqs/:id', desk, async (req, res) => {
   const { rowCount } = await query('DELETE FROM faqs WHERE id = $1 AND hotel_id = $2', [id.parse(req.params.id), req.user.hotelId]);
   if (!rowCount) throw notFound('FAQ not found');
+  invalidateFaqCache(req.user.hotelId);
   res.status(204).end();
+});
+
+// ---------- Hotel settings (admin) ----------
+
+const SETTINGS_COLUMNS = 'name, autopilot_mode, night_start, night_end, timezone, escalate_after_minutes, require_inspection';
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use HH:MM, e.g. 22:00');
+
+router.get('/settings', desk, async (req, res) => {
+  const { rows: [hotel] } = await query(`SELECT ${SETTINGS_COLUMNS} FROM hotels WHERE id = $1`, [req.user.hotelId]);
+  res.json(hotel);
+});
+
+router.put('/settings', requireAdmin, async (req, res) => {
+  const s = z.object({
+    name: z.string().trim().min(1).max(100),
+    autopilot_mode: z.enum(['always', 'night', 'off']),
+    night_start: hhmm,
+    night_end: hhmm,
+    timezone: z.string().trim().max(60).refine((tz) => {
+      try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; }
+    }, 'unknown time zone'),
+    escalate_after_minutes: z.number().int().min(1).max(240),
+    require_inspection: z.boolean(),
+  }).parse(req.body);
+  const { rows: [hotel] } = await query(
+    `UPDATE hotels SET name = $2, autopilot_mode = $3, night_start = $4, night_end = $5, timezone = $6,
+       escalate_after_minutes = $7, require_inspection = $8
+     WHERE id = $1 RETURNING ${SETTINGS_COLUMNS}`,
+    [req.user.hotelId, s.name, s.autopilot_mode, s.night_start, s.night_end, s.timezone, s.escalate_after_minutes, s.require_inspection],
+  );
+  res.json(hotel);
 });
 
 // ---------- Staff accounts (admin) ----------
 
+const USER_COLUMNS = 'id, name, email AS login, role, floors, active, created_at';
+
 router.get('/users', requireAdmin, async (req, res) => {
-  const { rows } = await query(
-    'SELECT id, name, email, role, active, created_at FROM staff WHERE hotel_id = $1 ORDER BY id',
-    [req.user.hotelId],
-  );
+  const { rows } = await query(`SELECT ${USER_COLUMNS} FROM staff WHERE hotel_id = $1 ORDER BY active DESC, role, name`, [req.user.hotelId]);
   res.json(rows);
 });
 
-// POST /api/staff/users  { name, email, password, role }
+// POST /api/staff/users  { name, login, password, role, floors }
 router.post('/users', requireAdmin, async (req, res) => {
   const u = z.object({
     name: z.string().trim().min(1).max(100),
-    email: z.string().trim().toLowerCase().email(),
+    login: loginId,
     password: z.string().min(8).max(200),
-    role: z.enum(['admin', 'reception']).default('reception'),
+    role: z.enum(ALL_ROLES).default('reception'),
+    floors: floorsList,
   }).parse(req.body);
-  const { rows: [user] } = await query(
-    `INSERT INTO staff (hotel_id, name, email, password_hash, role) VALUES ($1,$2,$3,$4,$5)
-     RETURNING id, name, email, role, active, created_at`,
-    [req.user.hotelId, u.name, u.email, await bcrypt.hash(u.password, 10), u.role],
-  );
-  res.status(201).json(user);
+  try {
+    const { rows: [user] } = await query(
+      `INSERT INTO staff (hotel_id, name, email, password_hash, role, floors) VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING ${USER_COLUMNS}`,
+      [req.user.hotelId, u.name, u.login, await bcrypt.hash(u.password, 10), u.role, u.floors.replace(/\s+/g, '')],
+    );
+    res.status(201).json(user);
+  } catch (err) {
+    if (err.code === '23505') throw new HttpError(409, 'That login ID is already taken');
+    throw err;
+  }
 });
 
-// PATCH /api/staff/users/:id  { active?, role?, password? }
+// PATCH /api/staff/users/:id  { name?, active?, role?, password?, floors? }
 router.patch('/users/:id', requireAdmin, async (req, res) => {
   const u = z.object({
+    name: z.string().trim().min(1).max(100).optional(),
     active: z.boolean().optional(),
-    role: z.enum(['admin', 'reception']).optional(),
+    role: z.enum(ALL_ROLES).optional(),
     password: z.string().min(8).max(200).optional(),
+    floors: floorsList.optional(),
   }).parse(req.body);
   const userId = id.parse(req.params.id);
-  if (userId === req.user.id && (u.active === false || u.role === 'reception')) {
+  if (userId === req.user.id && (u.active === false || (u.role && u.role !== 'admin'))) {
     throw new HttpError(400, 'You cannot disable or demote yourself');
   }
   const { rows: [user] } = await query(
     `UPDATE staff SET
-       active = COALESCE($3, active),
-       role = COALESCE($4, role),
-       password_hash = COALESCE($5, password_hash)
+       name = COALESCE($3, name),
+       active = COALESCE($4, active),
+       role = COALESCE($5, role),
+       password_hash = COALESCE($6, password_hash),
+       floors = COALESCE($7, floors)
      WHERE id = $1 AND hotel_id = $2
-     RETURNING id, name, email, role, active, created_at`,
-    [userId, req.user.hotelId, u.active ?? null, u.role ?? null, u.password ? await bcrypt.hash(u.password, 10) : null],
+     RETURNING ${USER_COLUMNS}`,
+    [userId, req.user.hotelId, u.name ?? null, u.active ?? null, u.role ?? null,
+      u.password ? await bcrypt.hash(u.password, 10) : null, u.floors?.replace(/\s+/g, '') ?? null],
   );
   if (!user) throw notFound('Staff member not found');
+  // A housekeeper who left (or changed job) hands their unfinished rooms to the others.
+  if (!user.active || user.role !== 'housekeeping') await reassignRoomsOf(req.user.hotelId, user.id);
   res.json(user);
 });
 

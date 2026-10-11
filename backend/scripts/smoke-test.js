@@ -22,9 +22,16 @@ const connect = (token) => new Promise((resolve, reject) => {
   s.on('connect', () => resolve(s));
   s.on('connect_error', reject);
 });
-const nextEvent = (socket, event) => new Promise((resolve, reject) => {
-  const t = setTimeout(() => reject(new Error(`timed out waiting for ${event}`)), 3000);
-  socket.once(event, (d) => { clearTimeout(t); resolve(d); });
+// Waits for the next `event` (optionally the next one matching `match`).
+const nextEvent = (socket, event, match = () => true) => new Promise((resolve, reject) => {
+  const t = setTimeout(() => { socket.off(event, on); reject(new Error(`timed out waiting for ${event}`)); }, 3000);
+  function on(d) {
+    if (!match(d)) return;
+    clearTimeout(t);
+    socket.off(event, on);
+    resolve(d);
+  }
+  socket.on(event, on);
 });
 const step = (name) => console.log(`  ok  ${name}`);
 
@@ -75,12 +82,12 @@ step(`guest sees ${r.data ? 'FAQs' : ''} and cannot use staff API`);
 const staffSock = await connect(staffToken);
 const guestSock = await connect(guestToken);
 
-let waiting = nextEvent(staffSock, 'message:new');
+let waiting = nextEvent(staffSock, 'message:new', (m) => m.sender === 'guest');
 await call('POST', '/api/guest/messages', { token: guestToken, body: { body: 'Hi, can I get extra towels?' } });
 assert.equal((await waiting).body, 'Hi, can I get extra towels?');
 step('guest -> staff message delivered live');
 
-waiting = nextEvent(guestSock, 'message:new');
+waiting = nextEvent(guestSock, 'message:new', (m) => m.sender === 'staff');
 await call('POST', `/api/staff/stays/${stay.id}/messages`, { token: staffToken, body: { body: 'Sending them now!' } });
 assert.equal((await waiting).sender, 'staff');
 step('staff -> guest message delivered live');
@@ -93,11 +100,11 @@ assert.equal(r.data.find((c) => c.stay_id === stay.id).unread, 0);
 step('unread count + mark read');
 
 // --- Service request flow
-waiting = nextEvent(staffSock, 'request:new');
+waiting = nextEvent(staffSock, 'request:new', (q) => q.type === 'housekeeping');
 r = await call('POST', '/api/guest/requests', { token: guestToken, body: { type: 'housekeeping', details: 'Clean at 3 PM' } });
 assert.equal(r.status, 201);
 const reqId = (await waiting).id;
-waiting = nextEvent(guestSock, 'request:updated');
+waiting = nextEvent(guestSock, 'request:updated', (q) => q.id === reqId);
 await call('PATCH', `/api/staff/requests/${reqId}`, { token: staffToken, body: { status: 'done' } });
 assert.equal((await waiting).status, 'done');
 r = await call('GET', '/api/guest/messages', { token: guestToken });

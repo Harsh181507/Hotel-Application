@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { pool } from './db/pool.js';
 import { createApp } from './app.js';
 import { attachSocket } from './socket/index.js';
+import { startEscalationJob } from './jobs/escalation.js';
 
 const server = http.createServer(createApp());
 const io = await attachSocket(server);
@@ -11,6 +12,7 @@ const io = await attachSocket(server);
 server.listen(config.port, () => {
   console.log(`API ready on http://localhost:${config.port}`);
 });
+startEscalationJob();
 
 // Finish in-flight work cleanly when the host restarts/stops the server.
 function shutdown(signal) {

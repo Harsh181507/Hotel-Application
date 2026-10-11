@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import { API_URL } from './api.js';
+import { apiUrl } from './api.js';
 
 // Opens one live connection while logged in. Reconnects automatically.
 // onAuthFailed runs if the server rejects the login (e.g. after checkout).
@@ -10,7 +10,7 @@ export function useSocket(token, onAuthFailed) {
 
   useEffect(() => {
     if (!token) return undefined;
-    const s = io(API_URL, { auth: { token }, transports: ['websocket', 'polling'] });
+    const s = io(apiUrl(), { auth: { token }, transports: ['websocket', 'polling'] });
     s.on('connect', () => setConnected(true));
     s.on('disconnect', () => setConnected(false));
     s.on('connect_error', (err) => {

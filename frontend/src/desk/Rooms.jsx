@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { Plus, UserPlus, KeyRound, QrCode, LogOut, Copy, Download } from 'lucide-react';
+import { Plus, UserPlus, KeyRound, QrCode, LogOut, Copy, Download, BellOff } from 'lucide-react';
 import { useSocketEvents } from '../lib/useSocket.js';
+import { HK_STATUS } from '../lib/requestTypes.js';
+import { rupees } from '../lib/money.js';
 import { toast } from '../lib/toast.js';
 import Modal from '../components/Modal.jsx';
 import Field from '../components/Field.jsx';
@@ -18,7 +20,7 @@ export default function Rooms({ call, socket, isAdmin }) {
   }, [call]);
 
   useEffect(() => { load(); }, [load]);
-  useSocketEvents(socket, { 'stay:updated': load }, [load]);
+  useSocketEvents(socket, { 'stay:updated': load, 'room:updated': load }, [load]);
 
   const newCode = async (room) => {
     if (!window.confirm(`Create a new code for room ${room.number}? The guest's phones will be logged out.`)) return;
@@ -31,7 +33,13 @@ export default function Rooms({ call, socket, isAdmin }) {
   };
 
   const checkout = async (room) => {
-    if (!window.confirm(`Check out ${room.stay.guestName} from room ${room.number}?`)) return;
+    let bill = '';
+    try {
+      const b = await call(`/api/staff/stays/${room.stay.id}/bill`);
+      const n = b.orders.filter((o) => o.status !== 'cancelled').length;
+      bill = n ? `\n\nRoom-service bill: ${rupees(b.total_paise)} (${n} order${n > 1 ? 's' : ''}). Collect it before the guest leaves.` : '';
+    } catch { /* bill unavailable: still allow checkout */ }
+    if (!window.confirm(`Check out ${room.stay.guestName} from room ${room.number}?${bill}`)) return;
     try {
       await call(`/api/staff/stays/${room.stay.id}/checkout`, { method: 'POST' });
       toast(`Room ${room.number} checked out`, 'success');
@@ -62,6 +70,12 @@ export default function Rooms({ call, socket, isAdmin }) {
               <span className="room-number">{room.number}</span>
               <span className={`status ${room.stay ? 'status-green' : 'status-grey'}`}>{room.stay ? 'Occupied' : 'Free'}</span>
             </div>
+            {(room.hkStatus !== 'ready' || room.dnd) && (
+              <div className="hk-flags">
+                {room.hkStatus !== 'ready' && <span className={`status status-${HK_STATUS[room.hkStatus].tone}`}>{HK_STATUS[room.hkStatus].label}</span>}
+                {room.dnd && <span className="flag"><BellOff size={12} /> DND</span>}
+              </div>
+            )}
             {room.stay ? (
               <div className="room-guest">
                 <strong>{room.stay.guestName}</strong>

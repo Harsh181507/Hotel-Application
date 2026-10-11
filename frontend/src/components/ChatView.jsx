@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
-import { Check, CheckCheck, Clock, RotateCw, SendHorizontal, ConciergeBell } from 'lucide-react';
+import { Check, CheckCheck, Clock, RotateCw, SendHorizontal, ConciergeBell, Bot } from 'lucide-react';
 import { dayLabel, timeLabel } from '../lib/format.js';
 
 /**
@@ -41,7 +41,8 @@ export default function ChatView({ chat, side, active = true, otherName, emptyTe
     }
   }, [active, status]);
 
-  const mine = (m) => (side === 'guest' ? m.sender === 'guest' : m.sender === 'staff');
+  // The autopilot ("bot") speaks for the front desk, so staff see it on their side.
+  const mine = (m) => (side === 'guest' ? m.sender === 'guest' : m.sender === 'staff' || m.sender === 'bot');
   let lastDay = '';
 
   return (
@@ -68,13 +69,15 @@ export default function ChatView({ chat, side, active = true, otherName, emptyTe
                 <div className="chat-system">{m.body}<span>{timeLabel(m.created_at)}</span></div>
               ) : (
                 <div className={`bubble-row ${mine(m) ? 'mine' : 'theirs'}`}>
-                  <div className={`bubble ${m.request_id ? 'bubble-request' : ''}`}>
-                    {!mine(m) && side === 'guest' && <div className="bubble-from">{otherName}</div>}
+                  <div className={`bubble ${m.request_id ? 'bubble-request' : ''} ${m.sender === 'bot' ? 'bubble-bot' : ''}`}>
+                    {m.sender === 'bot' ? (
+                      <div className="bubble-from bubble-from-bot"><Bot size={13} /> {side === 'guest' ? `${otherName} · auto-reply` : 'Auto-reply'}</div>
+                    ) : (!mine(m) && side === 'guest' && <div className="bubble-from">{otherName}</div>)}
                     {m.request_id && <div className="bubble-tag">Service request</div>}
                     <div className="bubble-text">{m.body}</div>
                     <div className="bubble-meta">
                       {timeLabel(m.created_at)}
-                      {mine(m) && (m.read_at
+                      {mine(m) && m.sender !== 'bot' && (m.read_at
                         ? <CheckCheck size={14} className="tick-read" aria-label="Read" />
                         : <Check size={14} aria-label="Sent" />)}
                     </div>

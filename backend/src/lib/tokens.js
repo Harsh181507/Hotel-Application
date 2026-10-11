@@ -32,13 +32,16 @@ export async function authenticate(token) {
 
   if (payload.typ === 'guest') {
     const { rows: [stay] } = await query(
-      `SELECT s.id, s.hotel_id, s.guest_name, s.token_version, r.number AS room_number
+      `SELECT s.id, s.hotel_id, s.guest_name, s.token_version, s.room_id, r.number AS room_number
          FROM stays s JOIN rooms r ON r.id = s.room_id
         WHERE s.id = $1 AND s.active`,
       [payload.stay],
     );
     if (!stay || stay.token_version !== payload.v) throw new HttpError(401, 'Your session has ended');
-    return { type: 'guest', id: stay.id, stayId: stay.id, hotelId: stay.hotel_id, name: stay.guest_name, roomNumber: stay.room_number };
+    return {
+      type: 'guest', id: stay.id, stayId: stay.id, hotelId: stay.hotel_id, name: stay.guest_name,
+      roomId: stay.room_id, roomNumber: stay.room_number,
+    };
   }
 
   throw new HttpError(401, 'Invalid session');

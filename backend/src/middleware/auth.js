@@ -23,6 +23,14 @@ export function requireAdmin(req, _res, next) {
   next();
 }
 
+// Only these staff roles may use the route, e.g. requireRoles('admin', 'reception').
+export function requireRoles(...roles) {
+  return (req, _res, next) => {
+    if (!roles.includes(req.user?.role)) throw new HttpError(403, 'Your role cannot do this');
+    next();
+  };
+}
+
 // Per-user limit (not per-IP: all guests on hotel Wi-Fi share one public IP).
 // Staff screens refresh after every guest message, so on a busy night they
 // make far more requests than any single guest; they get a higher limit.

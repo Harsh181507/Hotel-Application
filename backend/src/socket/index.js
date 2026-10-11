@@ -2,15 +2,19 @@
 //
 // Sending messages goes through the REST API (POST .../messages) so it gets
 // validation, rate limiting and a saved copy. The socket only PUSHES events:
-//   message:new, messages:read, request:new, request:updated,
+//   message:new, messages:read, request:new, request:updated, request:escalated,
+//   order:new, order:updated, order:escalated, room:updated,
 //   stay:updated, session:ended, typing
+// Department staff (housekeeping/kitchen/maintenance) only join their
+// department's channel, so they never receive guest chats.
 import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import { config } from '../config.js';
 import { query } from '../db/pool.js';
 import { authenticate } from '../lib/tokens.js';
-import { setIo, staffChannel, stayChannel } from '../lib/realtime.js';
+import { deptChannel, setIo, staffChannel, stayChannel } from '../lib/realtime.js';
+import { departmentOf } from '../lib/departments.js';
 
 export async function attachSocket(httpServer) {
   const io = new Server(httpServer, {
@@ -44,6 +48,8 @@ export async function attachSocket(httpServer) {
       socket.on('typing', () => {
         socket.to(staffChannel(user.hotelId)).emit('typing', { stayId: user.stayId, from: 'guest' });
       });
+    } else if (departmentOf(user)) {
+      socket.join(deptChannel(user.hotelId, departmentOf(user)));
     } else {
       socket.join(staffChannel(user.hotelId));
       socket.on('typing', async ({ stayId } = {}) => {

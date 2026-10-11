@@ -32,7 +32,7 @@ export default function FaqEditor({ call }) {
       <div className="page-head">
         <div>
           <h1 className="page-title">Guest answers</h1>
-          <p className="muted">What guests see in the Answers tab. Guests get changes the next time they open that tab.</p>
+          <p className="muted">What guests see in the Answers tab. The autopilot also uses these to reply in chat.</p>
         </div>
         <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Add answer</button>
       </div>
@@ -76,6 +76,7 @@ function FaqForm({ faq, categories, call, onClose, onSaved }) {
     category: faq.category || categories[0] || 'General',
     question: faq.question || '',
     answer: faq.answer || '',
+    keywords: faq.keywords || '',
     sortOrder: faq.sort_order ?? 0,
   });
   const [error, setError] = useState('');
@@ -104,6 +105,9 @@ function FaqForm({ faq, categories, call, onClose, onSaved }) {
         </Field>
         <Field label="Answer">
           <textarea className="input" rows={5} value={form.answer} onChange={set('answer')} required maxLength={5000} />
+        </Field>
+        <Field label="Extra words guests might use (optional)" hint="Helps the autopilot recognise the question, e.g. internet, net, वाईफाई. Separate with commas.">
+          <input className="input" value={form.keywords} onChange={set('keywords')} maxLength={500} />
         </Field>
         <Field label="Order" hint="Lower numbers appear first">
           <input className="input" type="number" value={form.sortOrder} onChange={set('sortOrder')} />

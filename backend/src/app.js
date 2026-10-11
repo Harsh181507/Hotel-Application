@@ -9,6 +9,8 @@ import { query } from './db/pool.js';
 import authRoutes from './routes/auth.js';
 import guestRoutes from './routes/guest.js';
 import staffRoutes from './routes/staff.js';
+import housekeepingRoutes from './routes/housekeeping.js';
+import diningRoutes from './routes/dining.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 // The built website (npm run build in /frontend). When it exists, this server
@@ -35,6 +37,8 @@ export function createApp() {
     },
   }));
   app.use(cors({ origin: config.allowedOrigins, credentials: true }));
+  // Menu photo uploads are bigger than normal requests; everything else stays small.
+  app.use('/api/staff/dining/images', express.json({ limit: '750kb' }));
   app.use(express.json({ limit: '50kb' }));
 
   // Used by hosting platforms to check the server is alive.
@@ -43,8 +47,22 @@ export function createApp() {
     res.json({ ok: true });
   });
 
+  // Menu photos are public (they're shown on the guest menu) and never change.
+  app.get('/api/images/:id', async (req, res) => {
+    const imageId = Number(req.params.id);
+    const { rows: [img] } = Number.isInteger(imageId) && imageId > 0
+      ? await query('SELECT mime, data FROM images WHERE id = $1', [imageId])
+      : { rows: [] };
+    if (!img) return res.status(404).json({ error: 'Not found' });
+    res.set({ 'Content-Type': img.mime, 'Cache-Control': 'public, max-age=31536000, immutable', 'Cross-Origin-Resource-Policy': 'cross-origin' });
+    res.send(img.data);
+  });
+
   app.use('/api/auth', authRoutes);
   app.use('/api/guest', guestRoutes);
+  // The more specific /api/staff/... routers go first.
+  app.use('/api/staff/housekeeping', housekeepingRoutes);
+  app.use('/api/staff/dining', diningRoutes);
   app.use('/api/staff', staffRoutes);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 

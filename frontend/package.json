@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "android:apk": "node scripts/build-apk.mjs",
+    "android:open": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
     "anemos": "file:..",
     "lucide-react": "^1.52.0",
     "qrcode": "^1.5.4",
@@ -18,7 +22,11 @@
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
     "vite": "^8.3.2"
   }
 }

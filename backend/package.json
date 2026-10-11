@@ -13,7 +13,9 @@
     "db:migrate": "node --env-file-if-exists=.env src/db/migrate.js",
     "db:seed": "node --env-file-if-exists=.env src/db/seed.js",
     "smoke": "node --env-file-if-exists=.env scripts/smoke-test.js",
-    "test:load": "node --env-file-if-exists=.env scripts/load-test.js"
+    "test:load": "node --env-file-if-exists=.env scripts/load-test.js",
+    "test:features": "node --env-file-if-exists=.env scripts/features-test.js",
+    "test:matcher": "node scripts/matcher-test.js"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",

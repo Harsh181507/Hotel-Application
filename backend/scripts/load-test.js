@@ -86,15 +86,17 @@ try {
   const sendMs = Date.now() - t;
   const total = GUESTS * MESSAGES;
   assert.equal(sent.length, total);
-  const allArrived = await waitUntil(() => staffGot.size >= total && guests.every((g) => g.received.length >= MESSAGES));
+  const own = (g) => g.received.filter((m) => m.sender === 'guest');
+  const allArrived = await waitUntil(() => staffGot.size >= total && guests.every((g) => own(g).length >= MESSAGES));
   console.log(`  ok  ${GUESTS} guests chatting at once: ${total} messages in ${sendMs} ms (~${Math.round(total / (sendMs / 1000))}/sec)`);
   assert.ok(allArrived, `front desk got ${staffGot.size}/${total} live`);
   console.log(`  ok  front desk received all ${total} live`);
 
-  // Privacy: each guest only ever saw their own conversation
+  // Privacy: each guest only ever saw their own conversation (their messages
+  // plus any autopilot replies to them).
   for (const g of guests) {
     assert.ok(g.received.every((m) => m.stay_id === g.stayId), `guest ${g.i} received someone else's message!`);
-    assert.equal(g.received.length, MESSAGES);
+    assert.equal(own(g).length, MESSAGES);
   }
   console.log(`  ok  privacy: no guest received another guest's messages`);
 
@@ -107,7 +109,10 @@ try {
 
   // History is complete in the database
   const histories = await Promise.all(guests.map((g) => call('GET', `/api/staff/stays/${g.stayId}/messages?limit=100`, { token: staff })));
-  histories.forEach((h) => assert.equal(h.length, MESSAGES + 1));
+  histories.forEach((h) => {
+    assert.equal(h.filter((m) => m.sender === 'guest').length, MESSAGES);
+    assert.equal(h.filter((m) => m.sender === 'staff').length, 1);
+  });
   console.log('  ok  every message saved (nothing lost)');
 
   staffSocket.close();

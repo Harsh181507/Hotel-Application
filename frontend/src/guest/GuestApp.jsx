@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { BookOpen, MessagesSquare, LogOut, QrCode } from 'lucide-react';
+import { BookOpen, MessagesSquare, LogOut, QrCode, UtensilsCrossed } from 'lucide-react';
 import { createClient } from '../lib/api.js';
 import { useSession } from '../lib/session.js';
 import { useSocket, useSocketEvents } from '../lib/useSocket.js';
 import GuestLogin from './GuestLogin.jsx';
 import Answers from './Answers.jsx';
 import GuestChat from './GuestChat.jsx';
+import GuestMenu from './GuestMenu.jsx';
 
 const ENDED = {
   checked_out: 'You have been checked out. Thank you for staying with us!',
@@ -67,14 +68,20 @@ function GuestHome({ session, room, logout }) {
         <section hidden={tab !== 'answers'} className="guest-panel">
           <Answers call={call} room={room} active={tab === 'answers'} onAskDesk={() => openTab('chat')} />
         </section>
+        <section hidden={tab !== 'order'} className="guest-panel">
+          <GuestMenu call={call} socket={socket} room={room} active={tab === 'order'} />
+        </section>
         <section hidden={tab !== 'chat'} className="guest-panel">
-          <GuestChat call={call} socket={socket} connected={connected} active={tab === 'chat'} />
+          <GuestChat call={call} socket={socket} connected={connected} active={tab === 'chat'} onOpenMenu={() => openTab('order')} />
         </section>
       </main>
 
       <nav className="tabbar">
         <button className={tab === 'answers' ? 'active' : ''} onClick={() => openTab('answers')}>
           <BookOpen size={22} /><span>Answers</span>
+        </button>
+        <button className={tab === 'order' ? 'active' : ''} onClick={() => openTab('order')}>
+          <UtensilsCrossed size={22} /><span>Order</span>
         </button>
         <button className={tab === 'chat' ? 'active' : ''} onClick={() => openTab('chat')}>
           <span className="tab-icon">

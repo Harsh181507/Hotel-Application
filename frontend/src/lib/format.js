@@ -13,6 +13,14 @@ export function dayLabel(iso) {
   return day.format(d);
 }
 
+// "just now", "5 min ago", "2 h ago", or a date: for sentences.
+export function timeAgo(iso) {
+  const short = ago(iso);
+  if (short === 'now') return 'just now';
+  return /^\d+[mh]$/.test(short) ? `${short.replace('m', ' min').replace('h', ' h')} ago` : short;
+}
+
+// "now", "5m", "2h", or a date: for compact lists.
 export function ago(iso) {
   if (!iso) return '';
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);

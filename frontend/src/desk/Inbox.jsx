@@ -26,7 +26,7 @@ export default function Inbox({ call, socket, conversations }) {
                 <small>{ago(c.last_at)}</small>
               </div>
               <div className="convo-preview">
-                {c.last_body ? `${c.last_sender === 'guest' ? '' : 'You: '}${c.last_body}` : 'No messages yet'}
+                {c.last_body ? `${{ guest: '', bot: 'Auto: ', system: '' }[c.last_sender] ?? 'You: '}${c.last_body}` : 'No messages yet'}
               </div>
             </div>
             {c.unread > 0 && <b className="badge">{c.unread}</b>}
