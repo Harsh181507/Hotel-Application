@@ -26,8 +26,6 @@
 }
 
 /* Android app: hotel server address on the login screen */
-.server-picker { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; font-size: 13px; color: var(--muted); }
-.server-picker .alert { width: 100%; margin: 8px 0 0; }
 
 /* Guest tab bar: any number of tabs side by side */
 .tabbar { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; }

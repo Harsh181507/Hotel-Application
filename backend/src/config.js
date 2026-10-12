@@ -18,16 +18,14 @@ export const config = {
   // its network (Render's internal connection string doesn't need it).
   databaseSsl: process.env.DATABASE_SSL === 'true',
   jwtSecret: required('JWT_SECRET'),
-  // The Android app (Capacitor) runs its screens from https://localhost.
-  // Logins use tokens (not cookies), so allowing the app's origin is safe.
+  // The Android app (android-app/) is a native app: browsers' CORS rules don't apply to it.
   corsOrigins: [
     ...list(process.env.CORS_ORIGINS),
     ...(publicUrl ? [publicUrl] : []),
-    ...list(process.env.APP_ORIGINS ?? 'https://localhost,capacitor://localhost'),
   ],
   // Which websites may call the API. In development any address is allowed
-  // (so a phone on the same Wi-Fi works); in production only CORS_ORIGINS,
-  // the site's own address and the Android app.
+  // (so a phone on the same Wi-Fi works); in production only CORS_ORIGINS
+  // and the site's own address.
   get allowedOrigins() {
     return this.isProd ? this.corsOrigins : true;
   },

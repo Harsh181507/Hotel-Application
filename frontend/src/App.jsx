@@ -1,20 +1,18 @@
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { QrCode, ConciergeBell } from 'lucide-react';
 import GuestApp from './guest/GuestApp.jsx';
 import DeskApp from './desk/DeskApp.jsx';
 import Toaster from './components/Toaster.jsx';
-import { isNativeApp } from './lib/native.js';
 
 // /guest/?room=<token>  -> guest app (opened from the room QR code)
 // /desk                 -> staff screens
-// The Android app is the staff app, so it opens straight at /desk.
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/guest/*" element={<GuestApp />} />
         <Route path="/desk/*" element={<DeskApp />} />
-        <Route path="*" element={isNativeApp() ? <Navigate to="/desk" replace /> : <Landing />} />
+        <Route path="*" element={<Landing />} />
       </Routes>
       <Toaster />
     </BrowserRouter>

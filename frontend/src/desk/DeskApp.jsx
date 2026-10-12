@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import {
   Inbox as InboxIcon, BedDouble, ClipboardList, BookOpen, LogOut, LogIn, ChefHat, Sparkles, UtensilsCrossed,
-  Users, Settings as SettingsIcon, BellRing, Server,
+  Users, Settings as SettingsIcon, BellRing,
 } from 'lucide-react';
-import { api, apiUrl, changeServer, createClient, serverIsChangeable } from '../lib/api.js';
+import { api, createClient } from '../lib/api.js';
 import { useSession } from '../lib/session.js';
 import { useSocket, useSocketEvents } from '../lib/useSocket.js';
-import { alertsBlocked, enableAlerts, staffAlert, startOnDuty, stopOnDuty } from '../lib/native.js';
+import { alertsBlocked, enableAlerts, staffAlert } from '../lib/alerts.js';
 import { DEPARTMENTS, isDeskRole, requestType, ROLES } from '../lib/requestTypes.js';
 import Field from '../components/Field.jsx';
 import Inbox from './Inbox.jsx';
@@ -67,32 +67,7 @@ function DeskLogin({ onLogin, notice }) {
         <button className="btn btn-primary btn-block btn-lg" disabled={busy}>
           {busy ? <span className="spinner spinner-light" /> : <><LogIn size={18} /> Log in</>}
         </button>
-        {serverIsChangeable() && <ServerPicker />}
       </form>
-    </div>
-  );
-}
-
-// Android app only: which hotel server this phone talks to.
-function ServerPicker() {
-  const [server, setServer] = useState(apiUrl());
-  const [error, setError] = useState('');
-  const change = async () => {
-    const next = window.prompt('Hotel server address (from your manager):', server);
-    if (!next) return;
-    setError('');
-    try {
-      setServer(await changeServer(next));
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-  return (
-    <div className="server-picker">
-      <Server size={14} />
-      <span>{server.replace(/^https?:\/\//, '')}</span>
-      <button type="button" className="link-btn" onClick={change}>Change</button>
-      {error && <p className="alert alert-error">{error}</p>}
     </div>
   );
 }
@@ -149,17 +124,12 @@ function DeskShell({ session, logout }) {
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => () => clearTimeout(timer.current), []);
-  // Ask for notification permission first, then (Android app) go "on duty" so
-  // the app keeps running in the background while this person is logged in.
+  // Ask for notification permission once after logging in.
   useEffect(() => {
     let active = true;
-    enableAlerts().then((ok) => {
-      if (!active) return;
-      setAlertsOn(ok);
-      startOnDuty(`${staff.name} · ${ROLES[role] ?? role}: you'll be alerted about new work`);
-    });
-    return () => { active = false; stopOnDuty(); };
-  }, [staff.name, role]);
+    enableAlerts().then((ok) => { if (active) setAlertsOn(ok); });
+    return () => { active = false; };
+  }, []);
 
   useSocketEvents(socket, {
     'message:new': (m) => {

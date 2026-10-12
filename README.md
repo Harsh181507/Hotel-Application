@@ -9,14 +9,16 @@ Hotel guest app + staff app:
   late warnings (default 10 minutes).
 - **In-room dining**: menu with photos, cart, kitchen screen, live order status, running bill.
 - **Housekeeping board**: Dirty → Cleaning → Ready, "Do not disturb", automatic assignment by floor.
-- **Android staff app** with real notifications, even while the phone is in a pocket.
+- **Android app** (native Kotlin) for guests and staff: a built-in QR scanner for guests, and real
+  notifications for staff even while the phone is in a pocket.
 
 ```
 anemos-concierge/
   package.json   <- run everything from here
   backend/       API, database, live chat server   (see backend/README.md)
-  frontend/      website + Android app             (see frontend/README.md)
-  builds/        the Android app file (AnemosStaff.apk) after "npm run android:apk"
+  frontend/      website for guests and staff      (see frontend/README.md)
+  android-app/   Android app in Kotlin             (see android-app/README.md)
+  builds/        HotelConcierge.apk, the ready-to-install Android app
 ```
 
 ## First time on a computer
@@ -56,17 +58,18 @@ Stop everything: **Ctrl + C** in that window. (The database keeps running in Doc
 
 Department staff never see guest chats. Staff can log in with a username (no email needed).
 
-## Android staff app
+## Android app
 
-```bash
-npm run android:apk
-```
+`builds/HotelConcierge.apk` is the app for guests **and** staff. Copy it to a phone and open it to install
+(allow "install unknown apps" once).
 
-Creates `builds/AnemosStaff.apk` (needs Android Studio installed: it provides Java and the Android SDK).
-Copy the APK to a phone and open it to install (allow "install unknown apps" once).
-The app talks to the server in `frontend/.env.android`; staff can change it on the login screen.
-While someone is logged in, the app shows a small **"On duty"** notification. That keeps it running in the
-background so new tasks and orders alert the phone.
+- **Guests** tap *I'm a guest* and scan the room QR with the app's own scanner. (Guests without the app can
+  still scan the QR with the phone camera and use the website.)
+- **Staff** tap *Hotel staff* and log in. While logged in, a small **"On duty"** notification keeps the app
+  connected so new chats, tasks and orders ring the phone even when the app is closed.
+
+It connects to the live server on Render; staff of another hotel tap **Change** on the login screen.
+To build it yourself (Android Studio), see **[android-app/README.md](android-app/README.md)**.
 
 ## Putting it online
 

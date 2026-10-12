@@ -1,7 +1,7 @@
-# Anemos Concierge — Frontend + Android app
+# Anemos Concierge — Frontend (website)
 
-React website for guests and staff, also packaged as the Android staff app (Capacitor).
-Talks to `../backend`.
+React website for guests and staff. Talks to `../backend`.
+The Android app is a separate native app: see `../android-app`.
 
 ## Run it
 
@@ -25,38 +25,18 @@ Get a guest link: front desk → **Rooms** → **QR** on any room.
 
 ```
 src/
-  App.jsx              page routes (/guest, /desk); the Android app opens /desk
+  App.jsx              page routes (/guest, /desk)
   styles.css           base colours, fonts and layout (theme at the top)
   features.css         autopilot, dining, kitchen, housekeeping, team, settings screens
-  lib/                 api calls, login storage, live connection, chat logic, alerts (native.js)
+  lib/                 api calls, login storage, live connection, chat logic, alerts (alerts.js)
   components/          ChatView (messages + text box), Modal, Field, Toaster
   guest/               GuestLogin, Answers, GuestMenu (ordering), GuestChat
   desk/                DeskApp (login + role menus), Inbox, Tasks, KitchenOrders, Housekeeping,
                        Rooms, MenuEditor, FaqEditor, Team, Settings
-android/               the Android project (Capacitor). Our own code:
-  app/src/main/java/com/anemos/concierge/staff/OnDutyService.java   keeps the app alive while logged in
-  app/src/main/java/com/anemos/concierge/staff/OnDutyPlugin.java    notifications for new work
-assets/                app icon and splash screen sources
-scripts/build-apk.mjs  one-step Android build
 ```
 
-## Android app
-
-```bash
-npm run android:apk            # ../builds/AnemosStaff.apk  (uses the server in .env.android)
-npm run android:apk -- --dev   # ../builds/AnemosStaff-dev.apk (test build for the emulator, talks to this PC)
-npm run android:open           # open the project in Android Studio
-```
-
-Needs Android Studio (Java 21 + Android SDK). The first build downloads Gradle and takes a few minutes.
-
-- **Server address:** set in `.env.android`. Staff can change it on the login screen (one app for every hotel).
-- **Alerts:** new tasks, orders and late warnings show as Android notifications with sound and vibration.
-  While logged in, a small "On duty" notification keeps the app running in the background. Without it,
-  Android freezes the app within seconds and alerts stop.
-- **Never give out the `-dev` APK:** it allows unencrypted connections, for testing only.
-- **Play Store:** the APK is a debug build, fine for installing on hotel phones directly. For the Play Store,
-  create a release keystore in Android Studio (Build → Generate Signed App Bundle) and keep it safe.
+Staff alerts on the website: a chime while the tab is open, and a browser notification when it's in the
+background (if the browser allows notifications).
 
 ## Testing on your phone (same Wi-Fi)
 

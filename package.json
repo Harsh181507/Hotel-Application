@@ -13,8 +13,7 @@
     "render-build": "npm install --prefix backend --omit=dev && npm install --prefix frontend --include=dev && npm run build --prefix frontend",
     "start": "npm run db:migrate --prefix backend && npm run db:seed --prefix backend && npm start --prefix backend",
     "test:features": "npm run test:features --prefix backend",
-    "test:matcher": "npm run test:matcher --prefix backend",
-    "android:apk": "npm run android:apk --prefix frontend"
+    "test:matcher": "npm run test:matcher --prefix backend"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"
