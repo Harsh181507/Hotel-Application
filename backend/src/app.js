@@ -11,6 +11,8 @@ import guestRoutes from './routes/guest.js';
 import staffRoutes from './routes/staff.js';
 import housekeepingRoutes from './routes/housekeeping.js';
 import diningRoutes from './routes/dining.js';
+import billingRoutes from './routes/billing.js';
+import { tablesRouter, vehiclesRouter } from './routes/bookings.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 // The built website (npm run build in /frontend). When it exists, this server
@@ -63,6 +65,9 @@ export function createApp() {
   // The more specific /api/staff/... routers go first.
   app.use('/api/staff/housekeeping', housekeepingRoutes);
   app.use('/api/staff/dining', diningRoutes);
+  app.use('/api/staff/billing', billingRoutes);
+  app.use('/api/staff/tables', tablesRouter);
+  app.use('/api/staff/vehicles', vehiclesRouter);
   app.use('/api/staff', staffRoutes);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 

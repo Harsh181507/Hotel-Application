@@ -4,10 +4,9 @@ import { query, transaction } from '../db/pool.js';
 import { broadcastMessage, saveMessage } from './chat.js';
 import { emitOps } from './realtime.js';
 import { HttpError } from './errors.js';
+import { addCharge, billChanged, chargeHasPayment, rupees, voidChargeFor } from './billing.js';
 
 export const ORDER_STATUSES = ['placed', 'preparing', 'on_the_way', 'delivered', 'cancelled'];
-
-const rupees = (paise) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 const ORDER_SELECT = `
   SELECT o.id, o.stay_id, o.status, o.note, o.total_paise, o.escalated_at, o.created_at, o.updated_at,
@@ -66,11 +65,16 @@ export async function placeOrder({ hotelId, stayId, lines, note }) {
   }
   const total = [...merged].reduce((sum, [id, qty]) => sum + byId.get(id).price_paise * qty, 0);
 
-  const orderId = await transaction(async (db) => {
+  const { orderId, charge } = await transaction(async (db) => {
     const { rows: [order] } = await db.query(
       'INSERT INTO orders (hotel_id, stay_id, note, total_paise) VALUES ($1, $2, $3, $4) RETURNING id',
       [hotelId, stayId, note, total],
     );
+    const summary = [...merged].map(([id, qty]) => `${qty}× ${byId.get(id).name}`).join(', ');
+    const charge = await addCharge({
+      db, hotelId, stayId, kind: 'room_service', description: `Room service #${order.id}: ${summary}`.slice(0, 300),
+      amountPaise: total, orderId: order.id,
+    });
     for (const [id, qty] of merged) {
       const item = byId.get(id);
       await db.query(
@@ -78,13 +82,15 @@ export async function placeOrder({ hotelId, stayId, lines, note }) {
         [order.id, id, item.name, item.price_paise, qty],
       );
     }
-    return order.id;
+    return { orderId: order.id, charge };
   });
 
   const order = await getOrder(hotelId, orderId);
   const summary = order.items.map((i) => `${i.quantity}× ${i.name}`).join(', ');
-  await notify(hotelId, order, `Order #${order.id} placed: ${summary}. Total ${rupees(order.total_paise)}${note ? `. Note: ${note}` : ''}`);
+  const tax = charge.tax_paise ? ` + ${Number(charge.tax_pct)}% GST ${rupees(charge.tax_paise)}` : '';
+  await notify(hotelId, order, `Order #${order.id} placed: ${summary}. Total ${rupees(order.total_paise)}${tax}${note ? `. Note: ${note}` : ''}`);
   emitOps(hotelId, 'kitchen', 'order:new', order, stayId);
+  billChanged(hotelId, stayId);
   return order;
 }
 
@@ -109,7 +115,14 @@ export async function setOrderStatus(hotelId, orderId, status, { byGuestStayId =
   if (!allowed) {
     throw new HttpError(409, byGuestStayId ? 'This order is already being prepared and can no longer be cancelled.' : 'That status change is not allowed.');
   }
-  await query('UPDATE orders SET status = $3, updated_at = now() WHERE id = $1 AND hotel_id = $2', [orderId, hotelId, status]);
+  if (status === 'cancelled' && byGuestStayId && await chargeHasPayment({ query }, 'order_id', orderId)) {
+    throw new HttpError(409, 'This order is already paid. Please ask the front desk to cancel it.');
+  }
+  await transaction(async (db) => {
+    await db.query('UPDATE orders SET status = $3, updated_at = now() WHERE id = $1 AND hotel_id = $2', [orderId, hotelId, status]);
+    if (status === 'cancelled') await voidChargeFor(db, 'order_id', orderId);
+  });
+  if (status === 'cancelled') billChanged(hotelId, current.stay_id);
   const order = await getOrder(hotelId, orderId);
   await notify(hotelId, order, GUEST_UPDATES[status](order.id));
   emitOps(hotelId, 'kitchen', 'order:updated', order, order.stay_id);

@@ -15,6 +15,7 @@
     "smoke": "node --env-file-if-exists=.env scripts/smoke-test.js",
     "test:load": "node --env-file-if-exists=.env scripts/load-test.js",
     "test:features": "node --env-file-if-exists=.env scripts/features-test.js",
+    "test:bookings": "node --env-file-if-exists=.env scripts/bookings-test.js",
     "test:matcher": "node scripts/matcher-test.js"
   },
   "dependencies": {

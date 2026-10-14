@@ -197,3 +197,139 @@ CREATE TABLE IF NOT EXISTS order_items (
   quantity          INT NOT NULL CHECK (quantity BETWEEN 1 AND 50)
 );
 CREATE INDEX IF NOT EXISTS order_items_order ON order_items (order_id);
+
+-- =====================================================================
+-- v3: final room bill with UPI payments, restaurant table booking,
+-- vehicle booking. Upgrades an existing database in place (safe to re-run).
+-- =====================================================================
+
+-- Payment details shown to guests (the hotel's own UPI QR code) and tax rates in %.
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS payment_qr_image_id INT REFERENCES images(id) ON DELETE SET NULL;
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS upi_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS payee_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS gstin TEXT NOT NULL DEFAULT '';
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS tax_food_pct NUMERIC(5,2) NOT NULL DEFAULT 0;
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS tax_vehicle_pct NUMERIC(5,2) NOT NULL DEFAULT 0;
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS tax_other_pct NUMERIC(5,2) NOT NULL DEFAULT 0;
+-- Restaurant opening hours ("HH:MM", hotel time) and how long a table booking lasts.
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS restaurant_open TEXT NOT NULL DEFAULT '12:00';
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS restaurant_close TEXT NOT NULL DEFAULT '23:00';
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS table_booking_minutes INT NOT NULL DEFAULT 90;
+
+-- Vehicles the hotel offers (cars, bikes, tempo travellers...). Removed vehicles are
+-- archived, never deleted, so old bookings and bills keep their details.
+CREATE TABLE IF NOT EXISTS vehicles (
+  id            SERIAL PRIMARY KEY,
+  hotel_id      INT NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+  type          TEXT NOT NULL,
+  name          TEXT NOT NULL DEFAULT '',
+  plate_number  TEXT NOT NULL DEFAULT '',
+  seats         INT NOT NULL DEFAULT 4 CHECK (seats BETWEEN 1 AND 60),
+  driver_name   TEXT NOT NULL DEFAULT '',
+  driver_phone  TEXT NOT NULL DEFAULT '',
+  price_paise   INT NOT NULL DEFAULT 0 CHECK (price_paise >= 0),
+  price_unit    TEXT NOT NULL DEFAULT 'hour' CHECK (price_unit IN ('hour', 'day', 'trip')),
+  available     BOOLEAN NOT NULL DEFAULT true,
+  archived      BOOLEAN NOT NULL DEFAULT false,
+  note          TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS vehicles_hotel ON vehicles (hotel_id) WHERE NOT archived;
+
+CREATE TABLE IF NOT EXISTS vehicle_bookings (
+  id           SERIAL PRIMARY KEY,
+  hotel_id     INT NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+  vehicle_id   INT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  stay_id      INT NOT NULL REFERENCES stays(id) ON DELETE CASCADE,
+  starts_at    TIMESTAMPTZ NOT NULL,
+  ends_at      TIMESTAMPTZ NOT NULL CHECK (ends_at > starts_at),
+  note         TEXT NOT NULL DEFAULT '',
+  price_paise  INT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'completed', 'cancelled')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS vehicle_bookings_vehicle ON vehicle_bookings (vehicle_id, starts_at) WHERE status = 'confirmed';
+CREATE INDEX IF NOT EXISTS vehicle_bookings_stay ON vehicle_bookings (stay_id);
+
+-- Restaurant tables and bookings. A booking holds a table for table_booking_minutes.
+CREATE TABLE IF NOT EXISTS dining_tables (
+  id          SERIAL PRIMARY KEY,
+  hotel_id    INT NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  seats       INT NOT NULL CHECK (seats BETWEEN 1 AND 30),
+  active      BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (hotel_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS table_bookings (
+  id          SERIAL PRIMARY KEY,
+  hotel_id    INT NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+  table_id    INT REFERENCES dining_tables(id) ON DELETE SET NULL,
+  stay_id     INT NOT NULL REFERENCES stays(id) ON DELETE CASCADE,
+  starts_at   TIMESTAMPTZ NOT NULL,
+  ends_at     TIMESTAMPTZ NOT NULL CHECK (ends_at > starts_at),
+  party_size  INT NOT NULL CHECK (party_size BETWEEN 1 AND 30),
+  note        TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'confirmed'
+              CHECK (status IN ('confirmed', 'seated', 'completed', 'cancelled', 'no_show')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS table_bookings_hotel_time ON table_bookings (hotel_id, starts_at);
+CREATE INDEX IF NOT EXISTS table_bookings_stay ON table_bookings (stay_id);
+
+-- The room bill: one row per thing the guest is charged for. Amounts are in paise,
+-- before tax; the tax rate is copied in when the charge is made, so later changes to
+-- the rates never alter an existing bill. A discount is a negative amount.
+CREATE TABLE IF NOT EXISTS charges (
+  id                  SERIAL PRIMARY KEY,
+  hotel_id            INT NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+  stay_id             INT NOT NULL REFERENCES stays(id) ON DELETE CASCADE,
+  kind                TEXT NOT NULL CHECK (kind IN ('room_service', 'restaurant', 'vehicle', 'extra', 'discount')),
+  description         TEXT NOT NULL,
+  amount_paise        INT NOT NULL,
+  tax_pct             NUMERIC(5,2) NOT NULL DEFAULT 0,
+  tax_paise           INT NOT NULL DEFAULT 0,
+  order_id            INT UNIQUE REFERENCES orders(id) ON DELETE SET NULL,
+  vehicle_booking_id  INT UNIQUE REFERENCES vehicle_bookings(id) ON DELETE SET NULL,
+  created_by          INT REFERENCES staff(id) ON DELETE SET NULL,
+  voided_at           TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS charges_stay ON charges (stay_id);
+
+-- Room-service orders placed before v3 become bill charges (no tax, as they were billed).
+INSERT INTO charges (hotel_id, stay_id, kind, description, amount_paise, order_id, voided_at, created_at)
+SELECT o.hotel_id, o.stay_id, 'room_service', 'Room service #' || o.id, o.total_paise, o.id,
+       CASE WHEN o.status = 'cancelled' THEN o.updated_at END, o.created_at
+  FROM orders o
+ WHERE NOT EXISTS (SELECT 1 FROM charges c WHERE c.order_id = o.id);
+
+-- Money received. A payment covers the charges linked to it (payment_charges); an
+-- advance has no links and simply lowers the balance. Guests send the UPI reference
+-- (UTR) of their payment; the front desk confirms or rejects it.
+CREATE TABLE IF NOT EXISTS payments (
+  id            SERIAL PRIMARY KEY,
+  hotel_id      INT NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+  stay_id       INT NOT NULL REFERENCES stays(id) ON DELETE CASCADE,
+  amount_paise  INT NOT NULL CHECK (amount_paise > 0),
+  method        TEXT NOT NULL CHECK (method IN ('upi', 'cash', 'card', 'advance', 'other')),
+  utr           TEXT,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'rejected')),
+  note          TEXT NOT NULL DEFAULT '',
+  from_guest    BOOLEAN NOT NULL DEFAULT false,
+  staff_id      INT REFERENCES staff(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS payments_stay ON payments (stay_id);
+CREATE INDEX IF NOT EXISTS payments_pending ON payments (hotel_id) WHERE status = 'pending';
+-- The same UPI reference can't be used for two payments.
+CREATE UNIQUE INDEX IF NOT EXISTS payments_utr_once ON payments (hotel_id, utr) WHERE utr IS NOT NULL AND status <> 'rejected';
+
+CREATE TABLE IF NOT EXISTS payment_charges (
+  payment_id  INT NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+  charge_id   INT NOT NULL REFERENCES charges(id) ON DELETE CASCADE,
+  PRIMARY KEY (payment_id, charge_id)
+);
+CREATE INDEX IF NOT EXISTS payment_charges_charge ON payment_charges (charge_id);

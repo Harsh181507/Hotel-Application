@@ -309,7 +309,9 @@ router.delete('/faqs/:id', desk, async (req, res) => {
 
 // ---------- Hotel settings (admin) ----------
 
-const SETTINGS_COLUMNS = 'name, autopilot_mode, night_start, night_end, timezone, escalate_after_minutes, require_inspection';
+const SETTINGS_COLUMNS = `name, autopilot_mode, night_start, night_end, timezone, escalate_after_minutes, require_inspection,
+  payment_qr_image_id, upi_id, payee_name, gstin, tax_food_pct::float AS tax_food_pct, tax_vehicle_pct::float AS tax_vehicle_pct,
+  tax_other_pct::float AS tax_other_pct, restaurant_open, restaurant_close, table_booking_minutes`;
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use HH:MM, e.g. 22:00');
 
 router.get('/settings', desk, async (req, res) => {
@@ -317,24 +319,45 @@ router.get('/settings', desk, async (req, res) => {
   res.json(hotel);
 });
 
+// Every field is optional: only the ones sent are changed.
+const taxPct = z.number().min(0).max(50);
+const settingsSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  autopilot_mode: z.enum(['always', 'night', 'off']),
+  night_start: hhmm,
+  night_end: hhmm,
+  timezone: z.string().trim().max(60).refine((tz) => {
+    try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; }
+  }, 'unknown time zone'),
+  escalate_after_minutes: z.number().int().min(1).max(240),
+  require_inspection: z.boolean(),
+  // How guests pay: the hotel's UPI QR picture (uploaded like a menu photo) and/or UPI ID.
+  payment_qr_image_id: z.number().int().positive().nullable(),
+  upi_id: z.string().trim().max(100).regex(/^$|^[\w.-]{2,256}@[a-zA-Z0-9.-]{2,64}$/, 'a UPI ID looks like hotelname@okaxis'),
+  payee_name: z.string().trim().max(100),
+  gstin: z.string().trim().toUpperCase().regex(/^$|^[0-9A-Z]{15}$/, 'a GSTIN has 15 letters and digits'),
+  tax_food_pct: taxPct,
+  tax_vehicle_pct: taxPct,
+  tax_other_pct: taxPct,
+  restaurant_open: hhmm,
+  restaurant_close: hhmm,
+  table_booking_minutes: z.number().int().min(30).max(300),
+}).partial();
+
 router.put('/settings', requireAdmin, async (req, res) => {
-  const s = z.object({
-    name: z.string().trim().min(1).max(100),
-    autopilot_mode: z.enum(['always', 'night', 'off']),
-    night_start: hhmm,
-    night_end: hhmm,
-    timezone: z.string().trim().max(60).refine((tz) => {
-      try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; }
-    }, 'unknown time zone'),
-    escalate_after_minutes: z.number().int().min(1).max(240),
-    require_inspection: z.boolean(),
-  }).parse(req.body);
-  const { rows: [hotel] } = await query(
-    `UPDATE hotels SET name = $2, autopilot_mode = $3, night_start = $4, night_end = $5, timezone = $6,
-       escalate_after_minutes = $7, require_inspection = $8
-     WHERE id = $1 RETURNING ${SETTINGS_COLUMNS}`,
-    [req.user.hotelId, s.name, s.autopilot_mode, s.night_start, s.night_end, s.timezone, s.escalate_after_minutes, s.require_inspection],
-  );
+  const s = settingsSchema.parse(req.body);
+  if (s.payment_qr_image_id) {
+    const { rows: [img] } = await query('SELECT 1 FROM images WHERE id = $1 AND hotel_id = $2', [s.payment_qr_image_id, req.user.hotelId]);
+    if (!img) throw new HttpError(400, 'QR picture not found. Please upload it again.');
+  }
+  const fields = Object.keys(s).filter((key) => s[key] !== undefined); // keys were checked by the schema above
+  if (fields.length) {
+    await query(
+      `UPDATE hotels SET ${fields.map((key, i) => `${key} = $${i + 2}`).join(', ')} WHERE id = $1`,
+      [req.user.hotelId, ...fields.map((key) => s[key])],
+    );
+  }
+  const { rows: [hotel] } = await query(`SELECT ${SETTINGS_COLUMNS} FROM hotels WHERE id = $1`, [req.user.hotelId]);
   res.json(hotel);
 });
 
