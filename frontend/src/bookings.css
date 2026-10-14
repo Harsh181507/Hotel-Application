@@ -1,0 +1,126 @@
+/* Room bill, payments, table and vehicle booking (guest + staff screens). */
+
+/* ---------- Shared ---------- */
+.segmented { display: flex; background: var(--surface-2); border-radius: 14px; padding: 4px; gap: 4px; }
+.segmented button {
+  flex: 1; border: 0; background: none; border-radius: 10px; padding: 9px 10px; font-weight: 600; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px;
+}
+.segmented button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.struck { opacity: 0.55; text-decoration: line-through; }
+.order-tracker-actions { display: flex; gap: 18px; margin-top: 6px; }
+
+/* ---------- Bill ---------- */
+.bill-balance {
+  display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px; color: var(--maroon);
+}
+.bill-balance > div { flex: 1; display: flex; flex-direction: column; line-height: 1.2; }
+.bill-balance strong { font-family: var(--serif); font-size: 26px; color: var(--text); }
+.bill-balance span { font-size: 13px; color: var(--muted); }
+.bill-balance.settled { color: var(--green); background: var(--green-soft); border-color: #c9d8c4; }
+.bill-items { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.bill-item { display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.bill-item:last-child { border-bottom: 0; }
+.bill-item.discount strong { color: var(--green-dark); }
+.bill-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bill-item-main strong { font-weight: 600; }
+.bill-item-kind { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.bill-item-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
+.bill-item-side .link-btn { padding: 0; }
+.bill-totals { margin: 14px 0; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 6px; }
+.bill-total { font-weight: 700; color: var(--text); font-size: 16px; border-top: 1px solid var(--border); padding-top: 6px; }
+.bill-payments { margin-bottom: 20px; display: flex; flex-direction: column; gap: 6px; }
+.bill-payments h3 { font-size: 14px; margin: 0 0 4px; }
+.bill-payments .status { margin-left: 6px; }
+
+.pay-sheet { display: flex; flex-direction: column; gap: 14px; }
+.pay-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.pay-qr { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.pay-qr img { width: min(240px, 70vw); aspect-ratio: 1; object-fit: contain; background: #fff; border-radius: 16px; border: 1px solid var(--border); padding: 8px; }
+.pay-upi { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; }
+
+/* ---------- Booking (guest) ---------- */
+.booking { display: flex; flex-direction: column; gap: 10px; padding-bottom: 20px; }
+.booking-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 8px 0 0; font-weight: 600; }
+.stepper-wide { align-self: flex-start; min-width: 200px; }
+.stepper-wide span { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.slot {
+  border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 9px 4px;
+  font-weight: 600; font-size: 14px;
+}
+.slot.on { background: var(--green); border-color: var(--green); color: #fff; }
+.slot:disabled { background: var(--surface-2); color: #b9ab98; text-decoration: line-through; cursor: not-allowed; }
+.my-bookings { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.my-bookings h3 { font-size: 15px; margin: 0; }
+.booking-card {
+  display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 14px; color: var(--green);
+}
+.booking-card > div { flex: 1; min-width: 0; display: flex; flex-direction: column; color: var(--text); }
+.booking-card a { display: inline-flex; align-items: center; gap: 3px; }
+.vehicle-list { display: flex; flex-direction: column; gap: 10px; }
+.vehicle-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.vehicle-card.taken { background: #faf6ef; }
+.vehicle-top { display: flex; gap: 12px; align-items: center; }
+.vehicle-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--green-soft); color: var(--green); display: grid; place-items: center; flex: none; }
+.vehicle-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vehicle-price { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.vehicle-booked { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.vehicle-clash { margin: 0; background: var(--red-soft); color: #8c2f28; border-radius: 10px; padding: 8px 12px; font-size: 14px; font-weight: 600; }
+
+/* ---------- Staff pages ---------- */
+.day-nav { display: flex; align-items: center; gap: 6px; }
+.day-nav strong { min-width: 130px; text-align: center; }
+.list-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.list-row {
+  display: grid; grid-template-columns: 90px 1fr auto; gap: 14px; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.list-row:last-child { border-bottom: 0; }
+.list-row.clickable { cursor: pointer; }
+.list-row.clickable:hover { background: #fbf7ef; }
+.list-row.dim { opacity: 0.55; }
+.list-row-time { font-family: var(--serif); font-weight: 600; font-size: 18px; }
+.list-row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.list-row-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.section-title { font-size: 18px; margin: 26px 0 10px; }
+.money-bad { color: #8c2f28; font-weight: 700; }
+.money-good { color: var(--green-dark); font-weight: 700; }
+.pending-pay { border: 1px solid #e3c48f; background: var(--amber-soft); border-radius: var(--radius); padding: 12px 16px; display: flex; align-items: center; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+.pending-pay > div { flex: 1; min-width: 180px; display: flex; flex-direction: column; }
+.bill-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.bill-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.bill-table th, .bill-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; font-size: 14px; vertical-align: top; }
+.bill-table th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; background: #fbf7ef; }
+.bill-table td.num, .bill-table th.num { text-align: right; white-space: nowrap; }
+.bill-table tr:last-child td { border-bottom: 0; }
+.bill-table .row-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.bill-columns { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
+.fleet-row { grid-template-columns: 44px 1fr auto; }
+.check-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+
+@media (max-width: 860px) {
+  .bill-columns { grid-template-columns: 1fr; }
+  .list-row { grid-template-columns: 70px 1fr; }
+  .list-row-side { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+/* ---------- Printed bill (Print button on the staff bill page) ---------- */
+.bill-print { display: none; }
+@media print {
+  @page { margin: 14mm; }
+  body * { visibility: hidden; }
+  .bill-print, .bill-print * { visibility: visible; }
+  .bill-print { display: block; position: absolute; inset: 0 auto auto 0; width: 100%; color: #000; font: 12px/1.45 var(--sans); }
+  .bill-print h1 { font-size: 22px; margin: 0; }
+  .bill-print .print-head { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
+  .bill-print table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  .bill-print th, .bill-print td { border-bottom: 1px solid #bbb; padding: 5px 4px; text-align: left; }
+  .bill-print .num { text-align: right; white-space: nowrap; }
+  .bill-print .print-totals { margin-left: auto; width: 280px; }
+  .bill-print .print-totals div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .bill-print .print-totals .grand { font-weight: 700; border-top: 1px solid #000; margin-top: 4px; padding-top: 4px; }
+  .bill-print .stamp { display: inline-block; border: 2px solid #000; padding: 4px 12px; font-weight: 700; letter-spacing: 0.1em; margin-top: 12px; }
+}

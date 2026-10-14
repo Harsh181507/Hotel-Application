@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import {
   Inbox as InboxIcon, BedDouble, ClipboardList, BookOpen, LogOut, LogIn, ChefHat, Sparkles, UtensilsCrossed,
-  Users, Settings as SettingsIcon, BellRing,
+  Users, Settings as SettingsIcon, BellRing, Receipt, Armchair, Car,
 } from 'lucide-react';
 import { api, createClient } from '../lib/api.js';
 import { useSession } from '../lib/session.js';
@@ -19,6 +19,11 @@ import MenuEditor from './MenuEditor.jsx';
 import Housekeeping from './Housekeeping.jsx';
 import Team from './Team.jsx';
 import Settings from './Settings.jsx';
+import Bills from './Bills.jsx';
+import TableBookings, { alertTableBooked } from './TableBookings.jsx';
+import Vehicles from './Vehicles.jsx';
+import { rupees } from '../lib/money.js';
+import { rangeLabel } from '../lib/booking.js';
 
 export default function DeskApp() {
   const { session, login, logout, notice } = useSession('anemos.staff');
@@ -79,13 +84,16 @@ const PAGES = {
   orders: { label: 'Orders', Icon: ChefHat, roles: ['admin', 'reception', 'kitchen'] },
   housekeeping: { label: 'Housekeeping', Icon: Sparkles, roles: ['admin', 'reception', 'housekeeping'] },
   rooms: { label: 'Rooms', Icon: BedDouble, roles: ['admin', 'reception'] },
+  bills: { label: 'Bills', Icon: Receipt, roles: ['admin', 'reception'] },
+  tables: { label: 'Tables', Icon: Armchair, roles: ['admin', 'reception', 'kitchen'] },
+  vehicles: { label: 'Vehicles', Icon: Car, roles: ['admin', 'reception'] },
   menu: { label: 'Menu', Icon: UtensilsCrossed, roles: ['admin', 'reception', 'kitchen'] },
   answers: { label: 'Answers', Icon: BookOpen, roles: ['admin', 'reception'] },
   team: { label: 'Team', Icon: Users, roles: ['admin'] },
   settings: { label: 'Settings', Icon: SettingsIcon, roles: ['admin'] },
 };
 const HOME = { admin: 'inbox', reception: 'inbox', housekeeping: 'housekeeping', kitchen: 'orders', maintenance: 'tasks' };
-const ORDER_FOR_ROLE = { housekeeping: ['housekeeping', 'tasks'], kitchen: ['orders', 'tasks', 'menu'] };
+const ORDER_FOR_ROLE = { housekeeping: ['housekeeping', 'tasks'], kitchen: ['orders', 'tasks', 'tables', 'menu'] };
 
 function DeskShell({ session, logout }) {
   const { staff } = session;
@@ -95,7 +103,7 @@ function DeskShell({ session, logout }) {
   const call = useMemo(() => createClient(session.token, expire), [session.token, expire]);
   const { socket, connected } = useSocket(session.token, expire);
   const [conversations, setConversations] = useState([]);
-  const [counts, setCounts] = useState({ tasks: 0, orders: 0, rooms: 0 });
+  const [counts, setCounts] = useState({ tasks: 0, orders: 0, rooms: 0, payments: 0 });
   const [alertsOn, setAlertsOn] = useState(!alertsBlocked());
   const timer = useRef();
   const pendingChatAlerts = useRef(new Map());
@@ -103,6 +111,7 @@ function DeskShell({ session, logout }) {
 
   const reload = useCallback(() => {
     if (desk) call('/api/staff/conversations').then(setConversations).catch(() => {});
+    if (desk) call('/api/staff/billing/payments/pending').then((p) => setCounts((c) => ({ ...c, payments: p.length }))).catch(() => {});
     call('/api/staff/requests?status=open').then((r) => setCounts((c) => ({ ...c, tasks: r.length }))).catch(() => {});
     if (can('orders')) {
       call('/api/staff/dining/orders').then((o) => setCounts((c) => ({ ...c, orders: o.filter((x) => x.status === 'placed').length }))).catch(() => {});
@@ -171,6 +180,15 @@ function DeskShell({ session, logout }) {
       scheduleReload();
       staffAlert(`Late order · Room ${o.room_number}`, `Order #${o.id} not started yet`);
     },
+    'payment:submitted': (p) => {
+      scheduleReload();
+      if (desk) staffAlert(`UPI payment · Room ${p.roomNumber}`, `${rupees(p.amountPaise)}, ref ${p.utr}. Please check and confirm in Bills.`);
+    },
+    'bill:updated': scheduleReload,
+    'table:booked': (t) => { if (can('tables')) alertTableBooked(t); },
+    'vehicle:booked': (v) => {
+      if (desk) staffAlert(`Vehicle booked · Room ${v.roomNumber}`, `${v.vehicle.name || v.vehicle.type}, ${rangeLabel(v.startLocal, v.endLocal)}`);
+    },
     'room:updated': (r) => {
       scheduleReload();
       if (role === 'housekeeping' && r.hk_assigned_to === staff.id && r.hk_status === 'dirty' && r.hk_priority) {
@@ -182,11 +200,11 @@ function DeskShell({ session, logout }) {
 
   const unread = conversations.reduce((n, c) => n + c.unread, 0);
   useEffect(() => {
-    const total = unread + counts.tasks + counts.orders;
+    const total = unread + counts.tasks + counts.orders + counts.payments;
     document.title = total ? `(${total}) Staff · Anemos` : 'Staff · Anemos';
   }, [unread, counts]);
 
-  const badge = { inbox: unread, tasks: counts.tasks, orders: counts.orders, housekeeping: counts.rooms };
+  const badge = { inbox: unread, tasks: counts.tasks, orders: counts.orders, housekeeping: counts.rooms, bills: counts.payments };
   const pageOrder = ORDER_FOR_ROLE[role] ?? Object.keys(PAGES);
   const nav = pageOrder.filter(can).map((key) => ({ key, ...PAGES[key], badge: badge[key] }));
   const home = HOME[role] ?? 'tasks';
@@ -231,6 +249,9 @@ function DeskShell({ session, logout }) {
           {can('orders') && <Route path="orders" element={<KitchenOrders call={call} socket={socket} role={role} />} />}
           {can('housekeeping') && <Route path="housekeeping" element={<Housekeeping call={call} socket={socket} role={role} staffId={staff.id} />} />}
           {can('rooms') && <Route path="rooms" element={<Rooms call={call} socket={socket} isAdmin={role === 'admin'} />} />}
+          {can('bills') && <Route path="bills/*" element={<Bills call={call} socket={socket} />} />}
+          {can('tables') && <Route path="tables" element={<TableBookings call={call} socket={socket} canManage={desk} />} />}
+          {can('vehicles') && <Route path="vehicles" element={<Vehicles call={call} socket={socket} />} />}
           {can('menu') && <Route path="menu" element={<MenuEditor call={call} role={role} />} />}
           {can('answers') && <Route path="answers" element={<FaqEditor call={call} />} />}
           {can('team') && <Route path="team" element={<Team call={call} staffId={staff.id} />} />}

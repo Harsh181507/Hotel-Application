@@ -116,6 +116,8 @@ async function loadBill(db, hotelId, stayId) {
       orderId: c.order_id,
       vehicleBookingId: c.vehicle_booking_id,
       createdAt: c.created_at,
+      // A payment covers it (or is waiting to be checked): it can't be removed from the bill.
+      locked: Boolean(c.pay_status),
       status: c.kind === 'discount' ? null
         : c.pay_status === 'confirmed' ? 'paid'
           : c.pay_status === 'pending' ? 'pending'
@@ -156,7 +158,9 @@ export async function listBills(hotelId) {
            FROM payments WHERE stay_id = s.id
        ) pay ON true
       WHERE s.hotel_id = $1 AND (s.active OR s.checked_out_at > now() - interval '30 days')
-      ORDER BY s.active DESC, length(r.number), r.number, s.checked_out_at DESC`,
+      ORDER BY s.active DESC,
+               CASE WHEN s.active THEN length(r.number) END, CASE WHEN s.active THEN r.number END,
+               s.checked_out_at DESC`,
     [hotelId],
   );
   return rows.map((s) => ({

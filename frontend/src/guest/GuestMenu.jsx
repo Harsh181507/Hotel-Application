@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Minus, Plus, ShoppingBag, Flame, ChevronRight, Receipt, X } from 'lucide-react';
+import { Minus, Plus, ShoppingBag, Flame, ChevronRight, Receipt } from 'lucide-react';
 import { imageUrl } from '../lib/api.js';
 import { rupees } from '../lib/money.js';
 import { storage } from '../lib/session.js';
 import { useSocketEvents } from '../lib/useSocket.js';
-import { ORDER_STATUS, ORDER_STEPS } from '../lib/requestTypes.js';
+import { ORDER_STEPS, ORDER_STATUS } from '../lib/requestTypes.js';
 import { timeAgo } from '../lib/format.js';
 import { toast } from '../lib/toast.js';
 import Modal from '../components/Modal.jsx';
@@ -14,14 +14,13 @@ export const VegMark = ({ veg }) => (
   <span className={`veg-mark ${veg ? 'veg' : 'nonveg'}`} title={veg ? 'Vegetarian' : 'Non-vegetarian'}><i /></span>
 );
 
-export default function GuestMenu({ call, socket, room, active }) {
+export default function GuestMenu({ call, socket, room, info, active, onOpenBill }) {
   const cartKey = `anemos.cart.${room}`;
   const [items, setItems] = useState(null);
   const [category, setCategory] = useState('All');
   const [cart, setCart] = useState(() => storage.read(cartKey) || {});
   const [orders, setOrders] = useState({ orders: [], total_paise: 0 });
   const [checkout, setCheckout] = useState(false);
-  const [showBill, setShowBill] = useState(false);
 
   const loadMenu = useCallback(() => call('/api/guest/menu').then(setItems).catch(() => setItems((v) => v ?? [])), [call]);
   const loadOrders = useCallback(() => call('/api/guest/orders').then(setOrders).catch(() => {}), [call]);
@@ -73,13 +72,13 @@ export default function GuestMenu({ call, socket, room, active }) {
         <div className="menu-hero">
           <h1>In-room dining</h1>
           {orders.total_paise > 0 && (
-            <button className="bill-link" onClick={() => setShowBill(true)}>
-              <Receipt size={16} /> Your bill: <strong>{rupees(orders.total_paise)}</strong> <ChevronRight size={16} />
+            <button className="bill-link" onClick={onOpenBill}>
+              <Receipt size={16} /> Your room bill <ChevronRight size={16} />
             </button>
           )}
         </div>
 
-        {activeOrders.map((o) => <OrderTracker key={o.id} order={o} call={call} onChange={loadOrders} />)}
+        {activeOrders.map((o) => <OrderTracker key={o.id} order={o} call={call} onChange={loadOrders} onPay={onOpenBill} />)}
 
         <div className="chips menu-chips">
           {categories.map((c) => (
@@ -132,6 +131,7 @@ export default function GuestMenu({ call, socket, room, active }) {
         <CheckoutSheet
           lines={lines}
           total={total}
+          taxPct={info?.taxes.foodPct ?? 0}
           setQty={setQty}
           call={call}
           onClose={() => setCheckout(false)}
@@ -145,12 +145,11 @@ export default function GuestMenu({ call, socket, room, active }) {
         />
       )}
 
-      {showBill && <BillSheet bill={orders} onClose={() => setShowBill(false)} />}
     </div>
   );
 }
 
-function OrderTracker({ order, call, onChange }) {
+function OrderTracker({ order, call, onChange, onPay }) {
   const step = ORDER_STEPS.indexOf(order.status);
   const cancel = async () => {
     if (!window.confirm(`Cancel order #${order.id}?`)) return;
@@ -177,12 +176,16 @@ function OrderTracker({ order, call, onChange }) {
           </div>
         ))}
       </div>
-      {order.status === 'placed' && <button className="link-btn" onClick={cancel}>Cancel order</button>}
+      <div className="order-tracker-actions">
+        <button className="link-btn" onClick={onPay}>Pay now</button>
+        {order.status === 'placed' && <button className="link-btn" onClick={cancel}>Cancel order</button>}
+      </div>
     </div>
   );
 }
 
-function CheckoutSheet({ lines, total, setQty, call, onClose, onPlaced, onMenuChanged }) {
+function CheckoutSheet({ lines, total, taxPct, setQty, call, onClose, onPlaced, onMenuChanged }) {
+  const tax = Math.round((total * taxPct) / 100);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -224,33 +227,12 @@ function CheckoutSheet({ lines, total, setQty, call, onClose, onPlaced, onMenuCh
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />
-      <div className="checkout-total"><span>Total (added to your room bill)</span><strong>{rupees(total)}</strong></div>
+      {tax > 0 && <div className="bill-line"><span>GST {taxPct}%</span><span>{rupees(tax)}</span></div>}
+      <div className="checkout-total"><span>Total (added to your room bill)</span><strong>{rupees(total + tax)}</strong></div>
       {error && <p className="alert alert-error">{error}</p>}
       <button className="btn btn-primary btn-block btn-lg" disabled={busy || !lines.length} onClick={place}>
-        {busy ? <span className="spinner spinner-light" /> : `Place order · ${rupees(total)}`}
+        {busy ? <span className="spinner spinner-light" /> : `Place order · ${rupees(total + tax)}`}
       </button>
-    </Modal>
-  );
-}
-
-function BillSheet({ bill, onClose }) {
-  return (
-    <Modal title="Your room-service bill" onClose={onClose}>
-      <div className="bill">
-        {bill.orders.map((o) => (
-          <div key={o.id} className={`bill-order ${o.status === 'cancelled' ? 'cancelled' : ''}`}>
-            <div className="bill-order-top">
-              <strong>Order #{o.id}</strong>
-              <span className={`status status-${ORDER_STATUS[o.status].tone}`}>{ORDER_STATUS[o.status].short}</span>
-            </div>
-            {o.items.map((i, idx) => (
-              <div key={idx} className="bill-line"><span>{i.quantity}× {i.name}</span><span>{rupees(i.quantity * i.unit_price_paise)}</span></div>
-            ))}
-          </div>
-        ))}
-        <div className="checkout-total"><span>Total so far</span><strong>{rupees(bill.total_paise)}</strong></div>
-        <p className="muted small"><X size={12} /> Cancelled orders are not charged. You pay at check-out.</p>
-      </div>
     </Modal>
   );
 }

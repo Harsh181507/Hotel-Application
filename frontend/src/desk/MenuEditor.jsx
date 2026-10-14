@@ -8,7 +8,7 @@ import Field from '../components/Field.jsx';
 import { VegMark } from '../guest/GuestMenu.jsx';
 
 // Shrinks a photo in the browser to max 900 px JPEG (~50-150 KB) before upload.
-function shrinkImage(file, maxSide = 900) {
+export function shrinkImage(file, maxSide = 900) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);

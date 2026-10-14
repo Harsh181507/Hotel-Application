@@ -21,7 +21,7 @@ const NEXT = { confirmed: ['seated', 'cancelled', 'no_show', 'completed'], seate
 const toTable = (t) => ({ id: t.id, name: t.name, seats: t.seats, active: t.active });
 
 export async function listTables(hotelId) {
-  const { rows } = await query('SELECT id, name, seats, active FROM dining_tables WHERE hotel_id = $1 ORDER BY seats, name', [hotelId]);
+  const { rows } = await query('SELECT id, name, seats, active FROM dining_tables WHERE hotel_id = $1 ORDER BY seats, length(name), name', [hotelId]);
   return rows.map(toTable);
 }
 
@@ -179,7 +179,7 @@ export async function bookTable({ hotelId, stayId, date, time, people, note = ''
   const bookingId = await transaction(async (db) => {
     // Lock the tables that fit, so two guests can't get the same table at the same time.
     const { rows: tables } = await db.query(
-      'SELECT id, name, seats FROM dining_tables WHERE hotel_id = $1 AND active AND seats >= $2 ORDER BY seats, name FOR UPDATE',
+      'SELECT id, name, seats FROM dining_tables WHERE hotel_id = $1 AND active AND seats >= $2 ORDER BY seats, length(name), name FOR UPDATE',
       [hotelId, people],
     );
     if (!tables.length) throw new HttpError(409, `We don't have a table for ${people}. Please message the front desk.`);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { Plus, UserPlus, KeyRound, QrCode, LogOut, Copy, Download, BellOff } from 'lucide-react';
+import { Plus, UserPlus, KeyRound, QrCode, LogOut, Copy, Download, BellOff, Receipt } from 'lucide-react';
 import { useSocketEvents } from '../lib/useSocket.js';
 import { HK_STATUS } from '../lib/requestTypes.js';
 import { rupees } from '../lib/money.js';
@@ -9,6 +10,7 @@ import Modal from '../components/Modal.jsx';
 import Field from '../components/Field.jsx';
 
 export default function Rooms({ call, socket, isAdmin }) {
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState(null);
   const [checkinRoom, setCheckinRoom] = useState(null);
   const [credentials, setCredentials] = useState(null);
@@ -32,17 +34,20 @@ export default function Rooms({ call, socket, isAdmin }) {
     }
   };
 
+  // Shows the final bill first: unpaid money should be collected (in Bills) before the guest leaves.
   const checkout = async (room) => {
-    let bill = '';
+    let warning = '';
     try {
-      const b = await call(`/api/staff/stays/${room.stay.id}/bill`);
-      const n = b.orders.filter((o) => o.status !== 'cancelled').length;
-      bill = n ? `\n\nRoom-service bill: ${rupees(b.total_paise)} (${n} order${n > 1 ? 's' : ''}). Collect it before the guest leaves.` : '';
+      const b = await call(`/api/staff/billing/stays/${room.stay.id}`);
+      const unpaid = b.balancePaise - b.pendingPaise;
+      if (b.pendingPaise > 0) warning += `\n\n${rupees(b.pendingPaise)} UPI payment is waiting for you to check it (Bills).`;
+      if (unpaid > 0) warning += `\n\nUNPAID: ${rupees(unpaid)} of ${rupees(b.totalPaise)}. Press Cancel and open "Bill" to take the payment, or OK to check out anyway.`;
+      else if (b.totalPaise > 0 && !b.pendingPaise) warning += `\n\nFinal bill ${rupees(b.totalPaise)}: fully paid.`;
     } catch { /* bill unavailable: still allow checkout */ }
-    if (!window.confirm(`Check out ${room.stay.guestName} from room ${room.number}?${bill}`)) return;
+    if (!window.confirm(`Check out ${room.stay.guestName} from room ${room.number}?${warning}`)) return;
     try {
       await call(`/api/staff/stays/${room.stay.id}/checkout`, { method: 'POST' });
-      toast(`Room ${room.number} checked out`, 'success');
+      toast(`Room ${room.number} checked out. The final bill stays in Bills for printing.`, 'success');
       load();
     } catch (err) {
       toast(err.message, 'error');
@@ -87,6 +92,7 @@ export default function Rooms({ call, socket, isAdmin }) {
             <div className="room-actions">
               {room.stay ? (
                 <>
+                  <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/desk/bills/${room.stay.id}`)}><Receipt size={14} /> Bill</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => newCode(room)}><KeyRound size={14} /> New code</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => checkout(room)}><LogOut size={14} /> Check out</button>
                 </>
