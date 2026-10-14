@@ -190,6 +190,164 @@ data class HotelSettings(
     val timezone: String,
     @SerialName("escalate_after_minutes") val escalateAfterMinutes: Int,
     @SerialName("require_inspection") val requireInspection: Boolean,
+    @SerialName("payment_qr_image_id") val paymentQrImageId: Int? = null,
+    @SerialName("upi_id") val upiId: String = "",
+    @SerialName("payee_name") val payeeName: String = "",
+    val gstin: String = "",
+    @SerialName("tax_food_pct") val taxFoodPct: Double = 0.0,
+    @SerialName("tax_vehicle_pct") val taxVehiclePct: Double = 0.0,
+    @SerialName("tax_other_pct") val taxOtherPct: Double = 0.0,
+    @SerialName("restaurant_open") val restaurantOpen: String = "12:00",
+    @SerialName("restaurant_close") val restaurantClose: String = "23:00",
+    @SerialName("table_booking_minutes") val tableBookingMinutes: Int = 90,
+)
+
+// ---------- Guest: hotel info (taxes, how to pay, restaurant hours) ----------
+
+@Serializable
+data class PaymentInfo(val qrImageId: Int? = null, val upiId: String = "", val payeeName: String = "", val ready: Boolean = false)
+
+@Serializable
+data class Taxes(val foodPct: Double = 0.0, val vehiclePct: Double = 0.0, val otherPct: Double = 0.0)
+
+@Serializable
+data class RestaurantInfo(val open: String = "12:00", val close: String = "23:00", val minutes: Int = 90, val tables: Int = 0)
+
+@Serializable
+data class GuestInfo(
+    val hotelName: String = "",
+    val today: String,
+    val time: String,
+    val taxes: Taxes = Taxes(),
+    val payment: PaymentInfo = PaymentInfo(),
+    val restaurant: RestaurantInfo = RestaurantInfo(),
+    val vehicles: Int = 0,
+)
+
+// ---------- Room bill ----------
+
+@Serializable
+data class BillStay(
+    val id: Int, val roomNumber: String, val guestName: String, val guestLogin: String = "",
+    val active: Boolean = true, val checkedInAt: String, val checkedOutAt: String? = null,
+)
+
+@Serializable
+data class BillHotel(val name: String = "", val gstin: String = "")
+
+@Serializable
+data class BillItem(
+    val id: Int,
+    val kind: String, // room_service | restaurant | vehicle | extra | discount
+    val description: String,
+    val amountPaise: Int,
+    val taxPct: Double = 0.0,
+    val taxPaise: Int = 0,
+    val totalPaise: Int,
+    val orderId: Int? = null,
+    val vehicleBookingId: Int? = null,
+    val createdAt: String,
+    val locked: Boolean = false,
+    val status: String? = null, // paid | pending | unpaid (null for a discount)
+)
+
+@Serializable
+data class BillPayment(
+    val id: Int, val amountPaise: Int, val method: String, val utr: String? = null,
+    val status: String, // pending | confirmed | rejected
+    val note: String = "", val fromGuest: Boolean = false, val staffName: String? = null,
+    val chargeIds: List<Int> = emptyList(), val createdAt: String, val decidedAt: String? = null,
+)
+
+@Serializable
+data class TaxLine(val pct: Double, val paise: Int)
+
+@Serializable
+data class RoomBill(
+    val stay: BillStay,
+    val hotel: BillHotel = BillHotel(),
+    val items: List<BillItem> = emptyList(),
+    val payments: List<BillPayment> = emptyList(),
+    val subtotalPaise: Int = 0,
+    val discountPaise: Int = 0,
+    val taxPaise: Int = 0,
+    val taxes: List<TaxLine> = emptyList(),
+    val totalPaise: Int = 0,
+    val paidPaise: Int = 0,
+    val pendingPaise: Int = 0,
+    val balancePaise: Int = 0,
+    val dueNowPaise: Int = 0,
+)
+
+@Serializable
+data class BillSummary(
+    val stayId: Int, val roomNumber: String, val guestName: String, val active: Boolean,
+    val checkedInAt: String, val checkedOutAt: String? = null,
+    val totalPaise: Int = 0, val paidPaise: Int = 0, val balancePaise: Int = 0, val pendingPayments: Int = 0,
+)
+
+@Serializable
+data class PendingPayment(
+    val id: Int, val stayId: Int, val roomNumber: String, val guestName: String,
+    val amountPaise: Int, val utr: String = "", val createdAt: String,
+)
+
+@Serializable
+data class BillChanged(val stayId: Int)
+
+// ---------- Restaurant tables ----------
+
+@Serializable
+data class TableSlot(val time: String, val available: Boolean)
+
+@Serializable
+data class TableDay(val open: String, val close: String, val minutes: Int, val maxSeats: Int = 0, val slots: List<TableSlot> = emptyList())
+
+@Serializable
+data class TableBooking(
+    val id: Int, val tableId: Int? = null, val tableName: String? = null, val tableSeats: Int? = null,
+    val stayId: Int, val roomNumber: String = "", val guestName: String = "",
+    val startsAt: String, val endsAt: String, val startLocal: String,
+    val partySize: Int, val note: String = "", val status: String, val createdAt: String,
+)
+
+@Serializable
+data class DiningTable(val id: Int, val name: String, val seats: Int, val active: Boolean = true)
+
+// ---------- Vehicles ----------
+
+@Serializable
+data class BookedRange(val startsAt: String, val endsAt: String, val startLocal: String, val endLocal: String)
+
+@Serializable
+data class Vehicle(
+    val id: Int,
+    val type: String,
+    val name: String = "",
+    val plateNumber: String = "",
+    val seats: Int = 4,
+    val pricePaise: Int = 0,
+    val priceUnit: String = "hour", // hour | day | trip
+    val available: Boolean = true,
+    val note: String = "",
+    val driverName: String? = null,
+    val driverPhone: String? = null,
+    val booked: List<BookedRange> = emptyList(),
+    val busyNow: Boolean = false,
+)
+
+@Serializable
+data class BookingVehicle(
+    val type: String, val name: String = "", val plateNumber: String = "",
+    val driverName: String = "", val driverPhone: String = "", val priceUnit: String = "hour",
+)
+
+@Serializable
+data class VehicleBooking(
+    val id: Int, val vehicleId: Int, val stayId: Int, val vehicle: BookingVehicle,
+    val roomNumber: String = "", val guestName: String = "",
+    val startsAt: String, val endsAt: String, val startLocal: String, val endLocal: String,
+    val hours: Int = 1, val pricePaise: Int, val status: String, val note: String = "", val createdAt: String,
 )
 
 // ---------- Live events ----------

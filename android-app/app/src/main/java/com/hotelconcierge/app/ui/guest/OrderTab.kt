@@ -82,14 +82,15 @@ fun imageUrl(server: String, imageId: Int) = "${server.trimEnd('/')}/api/images/
 /** In-room dining: menu, cart, live order tracking and the running bill. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrderTab(session: Session.Guest) {
+fun OrderTab(session: Session.Guest, info: com.hotelconcierge.app.data.GuestInfo?, onOpenBill: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val toast = com.hotelconcierge.app.ui.staff.rememberToast()
+    val foodTax = info?.taxes?.foodPct ?: 0.0
     var menu by remember { mutableStateOf<List<MenuItem>?>(null) }
     var bill by remember { mutableStateOf(Bill()) }
     var category by remember { mutableStateOf("All") }
     val cart = remember { mutableStateMapOf<Int, Int>() }
     var checkout by remember { mutableStateOf(false) }
-    var showBill by remember { mutableStateOf(false) }
 
     suspend fun loadMenu() { menu = runCatching { Api.get<List<MenuItem>>("/api/guest/menu") }.getOrDefault(menu ?: emptyList()) }
     suspend fun loadOrders() { runCatching { Api.get<Bill>("/api/guest/orders") }.onSuccess { bill = it } }
@@ -117,20 +118,20 @@ fun OrderTab(session: Session.Guest) {
                 if (bill.totalPaise > 0) {
                     Spacer(Modifier.height(8.dp))
                     Row(
-                        Modifier.clip(CircleShape).background(HC.Surface).border(1.dp, HC.Border, CircleShape).clickable { showBill = true }.padding(horizontal = 14.dp, vertical = 7.dp),
+                        Modifier.clip(CircleShape).background(HC.Surface).border(1.dp, HC.Border, CircleShape).clickable { onOpenBill() }.padding(horizontal = 14.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(Icons.Outlined.Receipt, null, Modifier.size(16.dp))
-                        Text("  Your bill: ")
-                        Text(rupees(bill.totalPaise), fontWeight = FontWeight.Bold)
+                        Text("  Your room bill ", fontWeight = FontWeight.SemiBold)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(16.dp))
                     }
                 }
                 Spacer(Modifier.height(12.dp))
             }
             items(active, key = { "o${it.id}" }) { o ->
-                OrderTracker(o) {
+                OrderTracker(o, onPay = onOpenBill) {
                     scope.launch {
-                        runCatching { Api.send("POST", "/api/guest/orders/${o.id}/cancel") }
+                        runCatching { Api.send("POST", "/api/guest/orders/${o.id}/cancel") }.onFailure { toast(it.message ?: "Couldn't cancel") }
                         loadOrders()
                     }
                 }
@@ -180,14 +181,21 @@ fun OrderTab(session: Session.Guest) {
                 }
                 Spacer(Modifier.height(10.dp))
                 Field(note, { note = it.take(300) }, "Any instructions?", placeholder = "e.g. less spicy, no onion", singleLine = false)
+                val tax = Math.round(total * foodTax / 100).toInt()
+                if (tax > 0) {
+                    Row(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                        Text("GST ${com.hotelconcierge.app.ui.pct(foodTax)}%", Modifier.weight(1f), color = HC.Muted)
+                        Text(rupees(tax), color = HC.Muted)
+                    }
+                }
                 Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Total (added to your room bill)", Modifier.weight(1f), color = HC.Muted)
-                    Text(rupees(total), style = MaterialTheme.typography.titleLarge)
+                    Text(rupees(total + tax), style = MaterialTheme.typography.titleLarge)
                 }
                 ErrorText(error)
                 Spacer(Modifier.height(8.dp))
                 PrimaryButton(
-                    "Place order · ${rupees(total)}", loading = busy, enabled = lines.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
+                    "Place order · ${rupees(total + Math.round(total * foodTax / 100).toInt())}", loading = busy, enabled = lines.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         scope.launch {
                             busy = true
@@ -205,33 +213,6 @@ fun OrderTab(session: Session.Guest) {
                 )
             }
         }
-    }
-
-    if (showBill) {
-        AlertDialog(
-            onDismissRequest = { showBill = false },
-            title = { Text("Your room-service bill") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    bill.orders.forEach { o ->
-                        val cancelled = o.status == "cancelled"
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Order #${o.id}", Modifier.weight(1f), fontWeight = FontWeight.Bold, textDecoration = if (cancelled) TextDecoration.LineThrough else null)
-                            ORDER_STATUS[o.status]?.let { (label, tone) -> StatusPill(label, tone) }
-                        }
-                        o.items.forEach { line ->
-                            Row { Text("${line.quantity}× ${line.name}", Modifier.weight(1f), color = HC.Muted); Text(rupees(line.quantity * line.unitPricePaise), color = HC.Muted) }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                    }
-                    HorizontalDivider(color = HC.Border)
-                    Row(Modifier.padding(top = 10.dp)) { Text("Total so far", Modifier.weight(1f)); Text(rupees(bill.totalPaise), fontWeight = FontWeight.Bold) }
-                    Text("Cancelled orders are not charged. You pay at check-out.", color = HC.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-                }
-            },
-            confirmButton = { TextButton(onClick = { showBill = false }) { Text("Close") } },
-            containerColor = HC.Surface,
-        )
     }
 }
 
@@ -285,7 +266,7 @@ private fun Stepper(qty: Int, onQty: (Int) -> Unit) {
 }
 
 @Composable
-private fun OrderTracker(order: Order, onCancel: () -> Unit) {
+private fun OrderTracker(order: Order, onPay: () -> Unit, onCancel: () -> Unit) {
     val step = ORDER_STEPS.indexOf(order.status)
     HcCard {
         Column(Modifier.padding(14.dp)) {
@@ -302,7 +283,10 @@ private fun OrderTracker(order: Order, onCancel: () -> Unit) {
                     }
                 }
             }
-            if (order.status == "placed") TextButton(onClick = onCancel) { Text("Cancel order", color = HC.Maroon) }
+            Row {
+                TextButton(onClick = onPay) { Text("Pay now", color = HC.Maroon) }
+                if (order.status == "placed") TextButton(onClick = onCancel) { Text("Cancel order", color = HC.Maroon) }
+            }
         }
     }
 }

@@ -11,6 +11,8 @@ import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.HorizontalDivider
@@ -34,6 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.hotelconcierge.app.data.Api
+import com.hotelconcierge.app.data.GuestInfo
 import com.hotelconcierge.app.data.Live
 import com.hotelconcierge.app.data.Message
 import com.hotelconcierge.app.data.Session
@@ -57,6 +61,9 @@ fun GuestHome(session: Session.Guest) {
     var tab by rememberSaveable { mutableStateOf("answers") }
     var unread by remember { mutableIntStateOf(0) }
     val currentTab by rememberUpdatedState(tab)
+    // Taxes, how to pay, restaurant hours and the hotel's date/time (for bookings).
+    var info by remember { mutableStateOf<GuestInfo?>(null) }
+    LaunchedEffect(session.token) { info = runCatching { Api.get<GuestInfo>("/api/guest/info") }.getOrNull() }
 
     LaunchedEffect(session.token) {
         Live.connect(session)
@@ -81,7 +88,9 @@ fun GuestHome(session: Session.Guest) {
         Box(Modifier.weight(1f)) {
             when (tab) {
                 "answers" -> AnswersTab(onAskDesk = { tab = "chat"; unread = 0 })
-                "order" -> OrderTab(session)
+                "order" -> OrderTab(session, info, onOpenBill = { tab = "bill" })
+                "book" -> BookTab(info)
+                "bill" -> BillTab(session, info)
                 else -> GuestChatTab(onOpenMenu = { tab = "order" })
             }
         }
@@ -92,6 +101,8 @@ fun GuestHome(session: Session.Guest) {
             )
             NavigationBarItem(tab == "answers", { tab = "answers" }, { Icon(Icons.Outlined.MenuBook, null) }, label = { Text("Answers") }, colors = colors)
             NavigationBarItem(tab == "order", { tab = "order" }, { Icon(Icons.Outlined.Restaurant, null) }, label = { Text("Order") }, colors = colors)
+            NavigationBarItem(tab == "book", { tab = "book" }, { Icon(Icons.Outlined.EventAvailable, null) }, label = { Text("Book") }, colors = colors)
+            NavigationBarItem(tab == "bill", { tab = "bill" }, { Icon(Icons.Outlined.ReceiptLong, null) }, label = { Text("Bill") }, colors = colors)
             NavigationBarItem(
                 tab == "chat", { tab = "chat"; unread = 0 },
                 {
@@ -99,7 +110,7 @@ fun GuestHome(session: Session.Guest) {
                         Icon(Icons.Outlined.ChatBubbleOutline, null)
                     }
                 },
-                label = { Text("Front desk") }, colors = colors,
+                label = { Text("Desk") }, colors = colors,
             )
         }
     }

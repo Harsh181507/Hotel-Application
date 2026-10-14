@@ -60,6 +60,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.TableRestaurant
 import com.hotelconcierge.app.data.Api
 import com.hotelconcierge.app.data.Conversation
 import com.hotelconcierge.app.data.HkRoom
@@ -100,7 +103,7 @@ sealed interface StaffRoute {
     data class Page(val key: String) : StaffRoute
 }
 
-private data class Counts(val unread: Int = 0, val tasks: Int = 0, val orders: Int = 0, val rooms: Int = 0)
+private data class Counts(val unread: Int = 0, val tasks: Int = 0, val orders: Int = 0, val rooms: Int = 0, val payments: Int = 0)
 
 fun staffLogout(context: android.content.Context, message: String? = null) {
     OnDutyService.stop(context)
@@ -137,6 +140,9 @@ fun StaffHome(session: Session.Staff) {
                 rooms = if (session.isDesk || session.role == "housekeeping") runCatching {
                     Api.get<List<HkRoom>>("/api/staff/housekeeping/rooms").count { it.status == "dirty" && (session.isDesk || it.assignedTo == session.id || it.assignedTo == null) }
                 }.getOrDefault(counts.rooms) else 0,
+                payments = if (session.isDesk) runCatching {
+                    Api.get<List<com.hotelconcierge.app.data.PendingPayment>>("/api/staff/billing/payments/pending").size
+                }.getOrDefault(counts.payments) else 0,
             )
             delay(400)
         }
@@ -151,7 +157,7 @@ fun StaffHome(session: Session.Staff) {
 
     when (val r = route) {
         is StaffRoute.Chat -> StaffChatScreen(r.conversation, onBack = { route = null })
-        is StaffRoute.Page -> Box(Modifier.fillMaxSize()) { StaffPage(r.key, session, onBack = { route = null }) }
+        is StaffRoute.Page -> Box(Modifier.fillMaxSize()) { StaffPage(r.key, session, onBack = { route = null }, onOpen = { route = StaffRoute.Page(it) }) }
         null -> Column(Modifier.fillMaxSize()) {
             if (!connected) {
                 Text(
@@ -166,7 +172,7 @@ fun StaffHome(session: Session.Staff) {
                     "orders" -> KitchenOrdersScreen(session)
                     "housekeeping" -> HousekeepingScreen(session)
                     "menu" -> MenuEditorScreen(session)
-                    else -> MoreScreen(session, onOpen = { route = StaffRoute.Page(it) })
+                    else -> MoreScreen(session, counts.payments, onOpen = { route = StaffRoute.Page(it) })
                 }
             }
             NavigationBar(containerColor = HC.Surface, tonalElevation = 0.dp) {
@@ -181,6 +187,7 @@ fun StaffHome(session: Session.Staff) {
                         "tasks" -> counts.tasks
                         "orders" -> counts.orders
                         "housekeeping" -> counts.rooms
+                        "more" -> counts.payments
                         else -> 0
                     }
                     val label = if (key == "housekeeping" && session.isDesk) "Cleaning" else t.label
@@ -202,9 +209,15 @@ fun StaffHome(session: Session.Staff) {
 }
 
 @Composable
-private fun StaffPage(key: String, session: Session.Staff, onBack: () -> Unit) {
+private fun StaffPage(key: String, session: Session.Staff, onBack: () -> Unit, onOpen: (String) -> Unit) {
+    when {
+        key.startsWith("bill:") -> BillsScreen(onBack, openStayId = key.removePrefix("bill:").toIntOrNull())
+    }
     when (key) {
-        "rooms" -> RoomsScreen(session, onBack)
+        "rooms" -> RoomsScreen(session, onBack, onOpenBill = { onOpen("bill:$it") })
+        "bills" -> BillsScreen(onBack)
+        "tables" -> TablesScreen(session, onBack)
+        "vehicles" -> VehiclesScreen(onBack)
         "menu" -> MenuEditorScreen(session, onBack)
         "answers" -> AnswersEditorScreen(onBack)
         "team" -> TeamScreen(session, onBack)
@@ -212,17 +225,21 @@ private fun StaffPage(key: String, session: Session.Staff, onBack: () -> Unit) {
     }
 }
 
-private data class MoreEntry(val key: String, val label: String, val text: String, val icon: ImageVector)
+private data class MoreEntry(val key: String, val label: String, val text: String, val icon: ImageVector, val badge: Int = 0)
 
 @Composable
-private fun MoreScreen(session: Session.Staff, onOpen: (String) -> Unit) {
+private fun MoreScreen(session: Session.Staff, pendingPayments: Int, onOpen: (String) -> Unit) {
     val context = LocalContext.current
     val entries = buildList {
         if (session.isDesk) {
             add(MoreEntry("rooms", "Rooms & check-in", "Check guests in and out, codes, room QR", Icons.Outlined.KingBed))
+            add(MoreEntry("bills", "Bills & payments", "Final bill per room, UPI payments to confirm, print", Icons.Outlined.ReceiptLong, pendingPayments))
+            add(MoreEntry("tables", "Table bookings", "Restaurant bookings and your tables", Icons.Outlined.TableRestaurant))
+            add(MoreEntry("vehicles", "Vehicles", "Vehicle bookings, your cars and drivers", Icons.Outlined.DirectionsCar))
             add(MoreEntry("menu", "Menu", "In-room dining items, prices and photos", Icons.AutoMirrored.Outlined.MenuBook))
             add(MoreEntry("answers", "Answers", "Wi-Fi, timings, nearby places (the autopilot uses these)", Icons.Outlined.RoomService))
         }
+        if (session.role == "kitchen") add(MoreEntry("tables", "Table bookings", "Restaurant bookings for the day", Icons.Outlined.TableRestaurant))
         if (session.isAdmin) {
             add(MoreEntry("team", "Team", "Staff logins and roles", Icons.Outlined.Groups))
             add(MoreEntry("settings", "Settings", "Hotel name, autopilot, late alerts", Icons.Outlined.Settings))
@@ -254,6 +271,7 @@ private fun MoreScreen(session: Session.Staff, onOpen: (String) -> Unit) {
                             Text(e.label, style = MaterialTheme.typography.titleMedium)
                             Text(e.text, color = HC.Muted, style = MaterialTheme.typography.bodySmall)
                         }
+                        com.hotelconcierge.app.ui.common.CountBadge(e.badge)
                         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = HC.Muted)
                     }
                 }

@@ -45,25 +45,36 @@ class OnDutyService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val session = SessionStore.session.value as? Session.Staff
-        if (session == null) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
         val notification = NotificationCompat.Builder(this, Alerts.DUTY_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_bell)
-            .setContentTitle("On duty · ${session.name}")
-            .setContentText("${ROLES[session.role] ?: session.role}: you'll be alerted about new work")
+            .setContentTitle(session?.let { "On duty · ${it.name}" } ?: "Hotel Concierge")
+            .setContentText(session?.let { "${ROLES[it.role] ?: it.role}: you'll be alerted about new work" } ?: "Logged out")
             .setOngoing(true)
             .setContentIntent(Alerts.openAppIntent(this))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
+        // Android requires this right after startForegroundService(), even if we stop at once
+        // (e.g. the saved login expired a moment ago); skipping it crashes the app.
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+        if (session == null) {
+            stopOnDuty()
+            return START_NOT_STICKY
+        }
 
-        if (listening == null) listening = scope.launch { Live.events.collect { handle(it) } }
+        if (listening == null) {
+            listening = scope.launch { Live.events.collect { handle(it) } }
+            // However the login ends (log out, expired, code changed), stop being "on duty".
+            scope.launch { SessionStore.session.collect { if (it !is Session.Staff) stopOnDuty() } }
+        }
         Live.connect(session)
         return START_STICKY // restarted by Android after low memory; reconnects from the saved login
+    }
+
+    private fun stopOnDuty() {
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun alert(title: String, body: String) = Alerts.staffAlert(this, title, body)
@@ -101,6 +112,20 @@ class OnDutyService : Service() {
             "order:escalated" -> {
                 val o = event.decode<Order>() ?: return
                 alert("Late order · Room ${o.roomNumber}", "Order #${o.id} not started yet")
+            }
+            "payment:submitted" -> {
+                val p = event.decode<com.hotelconcierge.app.data.PendingPayment>() ?: return
+                if (session.isDesk) alert("UPI payment · Room ${p.roomNumber}", "${com.hotelconcierge.app.ui.rupees(p.amountPaise)}, ref ${p.utr}. Check it and confirm in Bills.")
+            }
+            "table:booked" -> {
+                val t = event.decode<com.hotelconcierge.app.data.TableBooking>() ?: return
+                if (session.isDesk || session.role == "kitchen") {
+                    alert("Table booked · Room ${t.roomNumber}", "${t.partySize} people, ${com.hotelconcierge.app.ui.dayLong(t.startLocal.take(10))} ${com.hotelconcierge.app.ui.time12(t.startLocal.substring(11))}")
+                }
+            }
+            "vehicle:booked" -> {
+                val v = event.decode<com.hotelconcierge.app.data.VehicleBooking>() ?: return
+                if (session.isDesk) alert("Vehicle booked · Room ${v.roomNumber}", "${v.vehicle.name.ifBlank { v.vehicle.type }}, ${com.hotelconcierge.app.ui.rangeLabel(v.startLocal, v.endLocal)}")
             }
             "room:updated" -> {
                 val r = event.decode<HkRoom>() ?: return

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.DoNotDisturbOn
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.QrCode2
+import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +55,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.hotelconcierge.app.data.Api
-import com.hotelconcierge.app.data.Bill
+import com.hotelconcierge.app.data.RoomBill
 import com.hotelconcierge.app.data.CheckinResponse
 import com.hotelconcierge.app.data.NewCodeResponse
 import com.hotelconcierge.app.data.Room
@@ -62,6 +63,7 @@ import com.hotelconcierge.app.data.Session
 import com.hotelconcierge.app.data.jsonOf
 import com.hotelconcierge.app.ui.HK_STATUS
 import com.hotelconcierge.app.ui.common.ErrorText
+import com.hotelconcierge.app.ui.common.InfoText
 import com.hotelconcierge.app.ui.common.Field
 import com.hotelconcierge.app.ui.common.HcCard
 import com.hotelconcierge.app.ui.common.Loading
@@ -77,7 +79,7 @@ private data class Credentials(val guestId: String, val code: String, val room: 
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun RoomsScreen(session: Session.Staff, onBack: () -> Unit) {
+fun RoomsScreen(session: Session.Staff, onBack: () -> Unit, onOpenBill: (Int) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val toast = rememberToast()
     var rooms by remember { mutableStateOf<List<Room>?>(null) }
@@ -85,7 +87,7 @@ fun RoomsScreen(session: Session.Staff, onBack: () -> Unit) {
     var credentials by remember { mutableStateOf<Credentials?>(null) }
     var qrRoom by remember { mutableStateOf<Room?>(null) }
     var newCodeRoom by remember { mutableStateOf<Room?>(null) }
-    var checkout by remember { mutableStateOf<Pair<Room, Bill?>?>(null) }
+    var checkout by remember { mutableStateOf<Pair<Room, RoomBill?>?>(null) }
     var adding by remember { mutableStateOf(false) }
 
     suspend fun load() { rooms = runCatching { Api.get<List<Room>>("/api/staff/rooms") }.getOrDefault(rooms ?: emptyList()) }
@@ -120,10 +122,11 @@ fun RoomsScreen(session: Session.Staff, onBack: () -> Unit) {
                         Spacer(Modifier.height(10.dp))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (room.stay != null) {
+                                SmallButton("Bill", { onOpenBill(room.stay.id) }, Icons.Outlined.ReceiptLong)
                                 SmallButton("New code", { newCodeRoom = room }, Icons.Outlined.Key)
                                 SmallButton("Check out", {
                                     scope.launch {
-                                        val bill = runCatching { Api.get<Bill>("/api/staff/stays/${room.stay.id}/bill") }.getOrNull()
+                                        val bill = runCatching { Api.get<RoomBill>("/api/staff/billing/stays/${room.stay.id}") }.getOrNull()
                                         checkout = room to bill
                                     }
                                 }, Icons.AutoMirrored.Outlined.Logout)
@@ -199,16 +202,38 @@ fun RoomsScreen(session: Session.Staff, onBack: () -> Unit) {
         }, { newCodeRoom = null })
     }
 
+    // Shows the final bill first: unpaid money should be collected (in Bills) before the guest leaves.
     checkout?.let { (room, bill) ->
-        val charged = bill?.orders?.count { it.status != "cancelled" } ?: 0
-        val billText = if (bill != null && charged > 0) "\n\nRoom-service bill: ${rupees(bill.totalPaise)} ($charged order${if (charged > 1) "s" else ""}). Collect it before the guest leaves." else ""
-        ConfirmDialog("Check out room ${room.number}?", "${room.stay?.guestName} will be logged out and the room goes to housekeeping.$billText", "Check out", {
-            scope.launch {
-                runCatching { Api.send("POST", "/api/staff/stays/${room.stay!!.id}/checkout") }
-                    .onSuccess { toast("Room ${room.number} checked out"); load() }
-                    .onFailure { toast(it.message ?: "Failed") }
-            }
-        }, { checkout = null })
+        val unpaid = bill?.let { it.balancePaise - it.pendingPaise } ?: 0
+        AlertDialog(
+            onDismissRequest = { checkout = null },
+            title = { Text("Check out room ${room.number}?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${room.stay?.guestName} will be logged out and the room goes to housekeeping.")
+                    if (bill != null && bill.pendingPaise > 0) InfoText("${rupees(bill.pendingPaise)} UPI payment is waiting for you to check it.")
+                    if (bill != null && unpaid > 0) ErrorText("UNPAID: ${rupees(unpaid)} of ${rupees(bill.totalPaise)}. Open the bill to take the payment first.")
+                    else if (bill != null && bill.totalPaise > 0 && bill.pendingPaise == 0) InfoText("Final bill ${rupees(bill.totalPaise)}: fully paid.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    checkout = null
+                    scope.launch {
+                        runCatching { Api.send("POST", "/api/staff/stays/${room.stay!!.id}/checkout") }
+                            .onSuccess { toast("Room ${room.number} checked out. The bill stays in Bills."); load() }
+                            .onFailure { toast(it.message ?: "Failed") }
+                    }
+                }) { Text(if (unpaid > 0) "Check out anyway" else "Check out", color = HC.Maroon) }
+            },
+            dismissButton = {
+                Row {
+                    if (bill != null) TextButton(onClick = { checkout = null; onOpenBill(bill.stay.id) }) { Text("Open bill") }
+                    TextButton(onClick = { checkout = null }) { Text("Cancel") }
+                }
+            },
+            containerColor = HC.Surface,
+        )
     }
 
     qrRoom?.let { room -> QrDialog(room) { qrRoom = null } }

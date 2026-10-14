@@ -9,6 +9,10 @@ Hotel guest app + staff app:
   late warnings (default 10 minutes).
 - **In-room dining**: menu with photos, cart, kitchen screen, live order status, running bill.
 - **Housekeeping board**: Dirty → Cleaning → Ready, "Do not disturb", automatic assignment by floor.
+- **Restaurant table booking**: guests pick day, time and party size; confirmed instantly if a table is free.
+- **Vehicle booking**: the hotel lists its cars/bikes with driver and price; guests book a time slot, taken slots show as booked.
+- **Final room bill**: room service, restaurant, vehicles, extras, GST, discount and advance, each item Paid / Unpaid.
+  Guests pay with the hotel's own UPI QR and send the UTR; the front desk confirms it (no payment fees). Printable at check-out.
 - **Android app** (native Kotlin) for guests and staff: a built-in QR scanner for guests, and real
   notifications for staff even while the phone is in a pocket.
 
@@ -51,9 +55,9 @@ Stop everything: **Ctrl + C** in that window. (The database keeps running in Doc
 | Role | Screens |
 |---|---|
 | Admin | Everything, plus Team and Settings |
-| Front desk | Inbox (chats), Tasks, Orders, Housekeeping, Rooms, Menu, Answers |
+| Front desk | Inbox (chats), Tasks, Orders, Housekeeping, Rooms, Bills, Tables, Vehicles, Menu, Answers |
 | Housekeeping | My rooms (to clean), Tasks (towels, cleaning…) |
-| Kitchen | Orders (kitchen screen), Tasks, Menu (sold-out switches only) |
+| Kitchen | Orders (kitchen screen), Tasks, Table bookings, Menu (sold-out switches only) |
 | Maintenance | Tasks (repairs) |
 
 Department staff never see guest chats. Staff can log in with a username (no email needed).
@@ -81,6 +85,7 @@ See **[DEPLOY.md](DEPLOY.md)** for step-by-step Render instructions.
 |---|---|
 | `npm test` | Logins, check-in, chat both ways, requests, check-out (11 checks) |
 | `npm run test:features` | Autopilot, department tasks and permissions, late alerts, ordering, housekeeping (18 checks) |
+| `npm run test:bookings` | Room bill with GST/discount/advance, UPI payments, table and vehicle booking (23 checks) |
 | `npm run test:matcher` | The autopilot understands 31 real-style guest messages (English, Hinglish, Hindi, typos) |
 | `npm run test:load` | 50 guests chatting at the same time: speed, nothing lost, privacy between guests |
 

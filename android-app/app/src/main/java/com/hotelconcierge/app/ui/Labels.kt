@@ -72,7 +72,7 @@ val HK_STATUS = mapOf(
 private val inr = NumberFormat.getNumberInstance(Locale("en", "IN")).apply { maximumFractionDigits = 2 }
 
 /** Prices are stored in paise (₹1 = 100). */
-fun rupees(paise: Int) = "₹" + inr.format(paise / 100.0)
+fun rupees(paise: Int) = (if (paise < 0) "−₹" else "₹") + inr.format(kotlin.math.abs(paise) / 100.0)
 
 private fun instant(iso: String?): Instant? = iso?.let { runCatching { Instant.parse(it) }.getOrNull() }
 

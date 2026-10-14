@@ -5,20 +5,23 @@ It talks to the same server as the website (`../backend`).
 
 - **Guests:** tap *I'm a guest* → the app's own **QR scanner** reads the code in the room (works offline, Google's
   on-device reader) → Guest ID + access code → **Answers**, **Order** (in-room dining with live tracking and
-  bill), **Front desk** chat, room cleaning / Do-not-disturb.
+  bill), **Book** (restaurant table or vehicle), **Bill** (every item Paid / Unpaid; pay with the hotel's UPI QR
+  or straight from a UPI app, then send the UTR), **Desk** chat, room cleaning / Do-not-disturb.
 - **Staff:** tap *Hotel staff* → log in. Each role gets its own tabs:
 
   | Role | Tabs |
   |---|---|
-  | Admin / Front desk | Inbox, Tasks, Orders, Cleaning, More (Rooms & check-in, Menu, Answers, Team\*, Settings\*) |
+  | Admin / Front desk | Inbox, Tasks, Orders, Cleaning, More (Rooms & check-in, Bills & payments, Table bookings, Vehicles, Menu, Answers, Team\*, Settings\*) |
   | Housekeeping | My rooms, Tasks |
-  | Kitchen | Orders, Tasks, Menu (sold-out switches) |
+  | Kitchen | Orders, Tasks, Menu (sold-out switches), More (Table bookings) |
   | Maintenance | Tasks |
 
   \* admin only. While logged in, an **"On duty"** notification keeps the app connected, so new chats, tasks,
   orders and late warnings ring the phone even when the app is closed. Logging out stops it.
 - **Rooms:** check guests in (Guest ID suggested from the name), show the one-time access code, make a new code,
-  check out with the room-service bill, and show/share the room's QR code (made on the phone).
+  check out with the final bill, and show/share the room's QR code (made on the phone).
+- **Bills:** UPI payments to confirm, every room's balance, add restaurant bills / extras / discounts / advances,
+  mark items paid (cash, card, UPI), and print or save the final bill as PDF.
 
 ## Get the app
 

@@ -87,7 +87,7 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
 /** Shrinks a picked photo to at most 900 px and returns it as a JPEG data URL (about 50-150 KB). */
-private suspend fun photoDataUrl(context: Context, uri: Uri): String = withContext(Dispatchers.Default) {
+internal suspend fun photoDataUrl(context: Context, uri: Uri): String = withContext(Dispatchers.Default) {
     val source: Bitmap = if (Build.VERSION.SDK_INT >= 28) {
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
             val longest = maxOf(info.size.width, info.size.height)

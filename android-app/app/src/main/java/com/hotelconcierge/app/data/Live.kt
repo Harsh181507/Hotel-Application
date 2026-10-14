@@ -23,6 +23,7 @@ object Live {
         "request:new", "request:updated", "request:escalated",
         "order:new", "order:updated", "order:escalated",
         "room:updated", "stay:updated", "session:ended",
+        "bill:updated", "payment:submitted", "table:booked", "table:updated", "vehicle:booked", "vehicle:updated",
     )
 
     private var socket: Socket? = null
