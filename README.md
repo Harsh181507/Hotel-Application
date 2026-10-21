@@ -82,7 +82,7 @@ See **[DEPLOY.md](DEPLOY.md)** for step-by-step Render instructions.
 ## Tests (run while `npm run dev` is running, in a second terminal)
 
 | Command | What it checks |
-|---|---|
+|--|--|
 | `npm test` | Logins, check-in, chat both ways, requests, check-out (11 checks) |
 | `npm run test:features` | Autopilot, department tasks and permissions, late alerts, ordering, housekeeping (18 checks) |
 | `npm run test:bookings` | Room bill with GST/discount/advance, UPI payments, table and vehicle booking (23 checks) |
